@@ -1,0 +1,20 @@
+{
+  "name": "tamy-iptv",
+  "version": "1.0.0",
+  "description": "TAMY IPTV - مشغّل IPTV (M3U / Xtream) مع راديو ومواقيت الصلاة",
+  "private": true,
+  "scripts": {
+    "prepare:www": "node scripts/prepare-www.js",
+    "serve": "npx http-server www -p 8080 -c-1",
+    "sync": "npm run prepare:www && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "hls.js": "^1.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0"
+  }
+}

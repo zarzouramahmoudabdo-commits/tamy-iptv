@@ -1,0 +1,18 @@
+{
+  "appId": "com.tamy.iptv",
+  "appName": "TAMY IPTV",
+  "webDir": "www",
+  "backgroundColor": "#0b1024",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  }
+}
