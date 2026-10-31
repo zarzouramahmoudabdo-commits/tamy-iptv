@@ -15,6 +15,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -44,6 +47,9 @@ public class NativePlayerActivity extends Activity {
     private PlayerView pv;
     private TextView title;
     private boolean live = true;
+    private int retries = 0;
+    private long readySince = 0;
+    private final Handler hd = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle b) {
@@ -99,9 +105,31 @@ public class NativePlayerActivity extends Activity {
             public void onMediaItemTransition(MediaItem m, int reason) { updateTitle(); }
 
             @Override
+            public void onPlaybackStateChanged(int st) {
+                if (st == Player.STATE_READY && readySince == 0) readySince = SystemClock.elapsedRealtime();
+            }
+
+            @Override
             public void onPlayerError(PlaybackException e) {
-                Toast.makeText(NativePlayerActivity.this,
-                        "تعذّر تشغيل البث (" + e.getErrorCodeName() + ")", Toast.LENGTH_LONG).show();
+                long now = SystemClock.elapsedRealtime();
+                if (readySince > 0 && now - readySince > 15000) retries = 0;
+                readySince = 0;
+                if (live && retries < 40 && player != null) {
+                    retries++;
+                    Toast.makeText(NativePlayerActivity.this, "إعادة اتصال… (" + retries + ")", Toast.LENGTH_SHORT).show();
+                    hd.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (player == null) return;
+                            player.seekToDefaultPosition();
+                            player.prepare();
+                            player.play();
+                        }
+                    }, 700);
+                } else {
+                    Toast.makeText(NativePlayerActivity.this,
+                            "تعذّر تشغيل البث (" + e.getErrorCodeName() + ")", Toast.LENGTH_LONG).show();
+                }
             }
         });
         player.prepare();
@@ -173,6 +201,7 @@ public class NativePlayerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        hd.removeCallbacksAndMessages(null);
         if (player != null) { player.release(); player = null; }
         super.onDestroy();
     }
