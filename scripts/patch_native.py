@@ -32,6 +32,7 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
@@ -134,7 +135,16 @@ public class NativePlayerActivity extends Activity {
                 readySince = 0;
                 if (live && retries < 40 && player != null) {
                     retries++;
-                    Toast.makeText(NativePlayerActivity.this, "إعادة اتصال… (" + retries + ")", Toast.LENGTH_SHORT).show();
+                    String why = e.getErrorCodeName();
+                    Throwable c = e.getCause();
+                    if (c instanceof HttpDataSource.InvalidResponseCodeException) {
+                        HttpDataSource.InvalidResponseCodeException h = (HttpDataSource.InvalidResponseCodeException) c;
+                        String u = String.valueOf(h.dataSpec.uri);
+                        int q = u.indexOf('?'); if (q > 0) u = u.substring(0, q);
+                        if (u.length() > 70) u = "…" + u.substring(u.length() - 70);
+                        why = "HTTP " + h.responseCode + "  " + u;
+                    }
+                    Toast.makeText(NativePlayerActivity.this, "إعادة اتصال… (" + retries + ")\n" + why, Toast.LENGTH_LONG).show();
                     hd.postDelayed(new Runnable() {
                         @Override
                         public void run() {
