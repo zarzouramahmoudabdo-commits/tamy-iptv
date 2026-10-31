@@ -16,12 +16,14 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.text.Editable;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Rational;
 import android.view.Gravity;
@@ -44,8 +46,11 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.HttpDataSource;
+import androidx.media3.datasource.TransferListener;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -53,10 +58,15 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
+import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.net.CookieHandler;
+import java.net.CookieManager;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 
 public class NativePlayerActivity extends Activity {
     public static String[] URLS = new String[0];
@@ -64,6 +74,28 @@ public class NativePlayerActivity extends Activity {
 
     private static final int ACCENT = Color.parseColor("#6C5CE7");
     private static final int MAX_SLOTS = 4;
+
+    // Serializes HTTP requests: many IPTV panels answer 406 when two connections hit one line at once
+    // (e.g. playlist reload during a segment download).
+    private static final Semaphore LOCK = new Semaphore(1, true);
+
+    private static class SerialSource implements DataSource {
+        private final DataSource up;
+        private boolean held = false;
+        SerialSource(DataSource u) { up = u; }
+        @Override public void addTransferListener(TransferListener l) { up.addTransferListener(l); }
+        @Override
+        public long open(DataSpec ds) throws IOException {
+            try { LOCK.acquire(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
+            held = true;
+            try { return up.open(ds); } catch (IOException | RuntimeException e) { release(); throw e; }
+        }
+        @Override public int read(byte[] b, int o, int l) throws IOException { return up.read(b, o, l); }
+        @Override public Uri getUri() { return up.getUri(); }
+        @Override public Map<String, List<String>> getResponseHeaders() { return up.getResponseHeaders(); }
+        @Override public void close() throws IOException { try { up.close(); } finally { release(); } }
+        private synchronized void release() { if (held) { held = false; LOCK.release(); } }
+    }
 
     private class Slot {
         ExoPlayer p;
@@ -94,6 +126,8 @@ public class NativePlayerActivity extends Activity {
     private FrameLayout topBar, botBar;
     private TextView titleTv, infoTv, playBtn, muteBtn;
     private DefaultHttpDataSource.Factory httpf;
+    private DataSource.Factory serial;
+    private FrameLayout stageFrame;
     private DefaultLoadControl loadControl;
     private final List<Integer> shown = new ArrayList<>();
     private ArrayAdapter<String> adapter;
@@ -123,6 +157,10 @@ public class NativePlayerActivity extends Activity {
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(12000)
                 .setReadTimeoutMs(20000);
+        serial = new DataSource.Factory() {
+            @Override public DataSource createDataSource() { return new SerialSource(httpf.createDataSource()); }
+        };
+        if (CookieHandler.getDefault() == null) CookieHandler.setDefault(new CookieManager());
         loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(15000, 40000, 1500, 4000)
                 .build();
@@ -166,16 +204,19 @@ public class NativePlayerActivity extends Activity {
     private void buildUi() {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
+        root.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         setContentView(root);
 
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(body, new FrameLayout.LayoutParams(-1, -1));
 
+        stageFrame = new FrameLayout(this);
+        body.addView(stageFrame, new LinearLayout.LayoutParams(0, -1, 1f));
         stage = new LinearLayout(this);
         stage.setOrientation(LinearLayout.VERTICAL);
         stage.setBackgroundColor(Color.BLACK);
-        body.addView(stage, new LinearLayout.LayoutParams(0, -1, 1f));
+        stageFrame.addView(stage, new FrameLayout.LayoutParams(-1, -1));
 
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -195,6 +236,8 @@ public class NativePlayerActivity extends Activity {
         search.setHintTextColor(Color.parseColor("#99FFFFFF"));
         search.setTextColor(Color.WHITE);
         search.setSingleLine(true);
+        search.setBackgroundColor(Color.parseColor("#26FFFFFF"));
+        search.setPadding(dp(10), dp(8), dp(10), dp(8));
         search.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_DONE);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b2, int c) {}
@@ -205,7 +248,18 @@ public class NativePlayerActivity extends Activity {
 
         listView = new ListView(this);
         listView.setDividerHeight(0);
-        adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<String>());
+        adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, new ArrayList<String>()) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView t = (TextView) super.getView(position, convertView, parent);
+                t.setTextSize(14);
+                t.setTextColor(Color.WHITE);
+                t.setSingleLine(true);
+                t.setEllipsize(TextUtils.TruncateAt.END);
+                t.setPadding(dp(8), dp(10), dp(8), dp(10));
+                return t;
+            }
+        };
         listView.setAdapter(adapter);
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -221,7 +275,7 @@ public class NativePlayerActivity extends Activity {
         GradientDrawable tg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xCC000000, 0x00000000});
         topBar.setBackground(tg);
         topBar.setPadding(dp(10), dp(8), dp(10), dp(24));
-        addTo(root, topBar, -1, -2, Gravity.TOP, 0, 0);
+        addTo(stageFrame, topBar, -1, -2, Gravity.TOP, 0, 0);
 
         TextView close = btn("✕", new View.OnClickListener() { @Override public void onClick(View v) { finish(); } });
         addTo(topBar, close, dp(44), dp(44), Gravity.LEFT | Gravity.TOP, 0, 0);
@@ -247,7 +301,7 @@ public class NativePlayerActivity extends Activity {
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0xCC000000, 0x00000000});
         botBar.setBackground(bg);
         botBar.setPadding(dp(10), dp(24), dp(10), dp(10));
-        addTo(root, botBar, -1, -2, Gravity.BOTTOM, 0, 0);
+        addTo(stageFrame, botBar, -1, -2, Gravity.BOTTOM, 0, 0);
 
         LinearLayout mid = new LinearLayout(this);
         mid.setOrientation(LinearLayout.HORIZONTAL);
@@ -281,7 +335,7 @@ public class NativePlayerActivity extends Activity {
         infoTv.setGravity(Gravity.CENTER);
         infoTv.setVisibility(View.GONE);
         FrameLayout.LayoutParams il = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
-        root.addView(infoTv, il);
+        stageFrame.addView(infoTv, il);
     }
 
     private void relayout() {
@@ -323,7 +377,7 @@ public class NativePlayerActivity extends Activity {
         if (slots.size() >= MAX_SLOTS) return;
         final Slot s = new Slot();
         s.idx = idx;
-        DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(httpf)
+        DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(serial)
                 .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(8));
         s.p = new ExoPlayer.Builder(this).setMediaSourceFactory(msf).setLoadControl(loadControl).build();
         s.v = new PlayerView(this);
