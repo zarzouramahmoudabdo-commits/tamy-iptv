@@ -78,6 +78,8 @@ public class NativePlayerActivity extends Activity {
     // Serializes HTTP requests: many IPTV panels answer 406 when two connections hit one line at once
     // (e.g. playlist reload during a segment download).
     private static final Semaphore LOCK = new Semaphore(1, true);
+    // playlist URL -> the edge server it redirected to (the provider load-balances and some edges answer 406)
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> PIN = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static class SerialSource implements DataSource {
         private final DataSource up;
@@ -88,7 +90,28 @@ public class NativePlayerActivity extends Activity {
         public long open(DataSpec ds) throws IOException {
             try { LOCK.acquire(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
             held = true;
-            try { return up.open(ds); } catch (IOException | RuntimeException e) { release(); throw e; }
+            String orig = ds.uri.toString();
+            boolean pl = isPlaylist(orig);
+            String pinned = pl ? PIN.get(orig) : null;
+            try {
+                long n;
+                if (pinned != null) {
+                    try { n = up.open(ds.withUri(Uri.parse(pinned))); }
+                    catch (IOException e) { PIN.remove(orig); n = up.open(ds); }
+                } else {
+                    n = up.open(ds);
+                }
+                if (pl) {
+                    Uri fin = up.getUri();
+                    if (fin != null && !fin.toString().equals(orig)) PIN.put(orig, fin.toString());
+                }
+                return n;
+            } catch (IOException | RuntimeException e) { release(); throw e; }
+        }
+        private static boolean isPlaylist(String u) {
+            int q = u.indexOf('?');
+            String path = q > 0 ? u.substring(0, q) : u;
+            return path.endsWith(".m3u8");
         }
         @Override public int read(byte[] b, int o, int l) throws IOException { return up.read(b, o, l); }
         @Override public Uri getUri() { return up.getUri(); }
