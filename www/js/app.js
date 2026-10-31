@@ -25,6 +25,8 @@ async function sha(s) {
   } catch { let h = 5381; for (const c of s) h = ((h << 5) + h + c.charCodeAt(0)) | 0; return 'x' + h; }
 }
 
+const UAS = { vlc: 'VLC/3.0.20 LibVLC/3.0.20', smarters: 'IPTVSmartersPro', android: 'Dalvik/2.1.0 (Linux; U; Android 13; Pixel 7 Build/TQ3A.230901.001)', chrome: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36', ffmpeg: 'Lavf/60.3.100', tivimate: 'TiviMate/4.7.0 (Linux; Android 13)' };
+const curUA = () => UAS[(U && U.settings && U.settings.ua)] || UAS.vlc;
 const isNative = () => { const C = window.Capacitor; if (!C) return false; try { if (C.isNativePlatform && C.isNativePlatform()) return true; return !!(C.getPlatform && C.getPlatform() === 'android'); } catch (e) { return false; } };
 async function apiText(url) {
   if (isNative() && Capacitor.Plugins && Capacitor.Plugins.CapacitorHttp) {
@@ -57,7 +59,7 @@ const QURAN_FALLBACK = [{ id: 'radio|https://stream.radiojar.com/8s5u5tpdtwzuv',
 let users = LS.get('tamy:users', []);
 let uid = LS.get('tamy:uid', null);
 let U = null;
-const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', active: 'free', showFree: false, autoUpdate: true } });
+const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', ua: 'vlc', active: 'free', showFree: false, autoUpdate: true } });
 function loadU() { U = LS.get('tamy:u:' + uid, null) || DEF(); U.settings = Object.assign(DEF().settings, U.settings || {}); U.pos = U.pos || {}; U.recent = U.recent || {}; U.recentL = U.recentL || {}; U.sources = U.sources || []; if (U.settings.active !== 'free' && !U.sources.some(x => x.id === U.settings.active)) U.settings.active = 'free'; if (U.settings.active === 'free' && U.settings.showFree === false && U.sources.length) U.settings.active = U.sources[0].id; applyTheme(); }
 function saveU() { if (uid) LS.set('tamy:u:' + uid, U); }
 function applyTheme() {
@@ -502,7 +504,7 @@ async function openNative(item, list) {
   try {
     NP = NP || plug();
     const pos = (!live && U.pos[item.id]) ? U.pos[item.id] * 1000 : 0;
-    const r = await NP.play({ urls: win.map(x => x.url), titles: win.map(x => x.name), index: idx, live, pos, ua: 'VLC/3.0.20 LibVLC/3.0.20' });
+    const r = await NP.play({ urls: win.map(x => x.url), titles: win.map(x => x.name), index: idx, live, pos, ua: curUA() });
     const last = r && typeof r.index === 'number' ? win[r.index] : null;
     if (last) { saveRecent(last); if (!live && r.pos > 0) { if (r.dur && r.pos > r.dur - 60000) delete U.pos[last.id]; else U.pos[last.id] = Math.floor(r.pos / 1000); saveU(); } }
   } catch (e) { toast(L('تعذّر المشغّل الأصلي، جارٍ استخدام المشغّل العادي', 'Native player failed, using web player')); openWeb(item, list); }
@@ -551,7 +553,7 @@ class NativeLoader {
   load(context, config, cb) {
     this.context = context; const st = this.stats = newStats(); st.loading.start = performance.now();
     const bin = context.responseType === 'arraybuffer';
-    const headers = Object.assign({ 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 'Accept': '*/*' }, context.headers || {});
+    const headers = Object.assign({ 'User-Agent': curUA(), 'Accept': '*/*' }, context.headers || {});
     if (context.rangeStart != null && context.rangeEnd != null) headers.Range = `bytes=${context.rangeStart}-${context.rangeEnd - 1}`;
     Capacitor.Plugins.CapacitorHttp.get({ url: context.url, headers, responseType: bin ? 'arraybuffer' : 'text', connectTimeout: 15000, readTimeout: 30000 }).then(r => {
       if (this.dead) return; st.loading.first = st.loading.end = performance.now();
@@ -767,6 +769,8 @@ function vSettings(v) {
   <div class="set"><h3>🎨 ${L('الثيمات', 'Themes')}</h3><div class="themes">${THEMES.map(t => `<button class="th ${s.theme === t[0] ? 'on' : ''}" data-act="theme" data-t="${t[0]}">${t[lang === 'ar' ? 1 : 2]}</button>`).join('')}</div></div>
   <div class="set"><h3>⚙ ${L('عام', 'General')}</h3>
     <div class="row"><div><b>${L('اللغة', 'Language')}</b></div><button class="btn sm" data-act="lang">${lang === 'ar' ? 'English' : 'العربية'}</button></div>
+    <div class="row"><div><b>${L('هوية المشغّل (User-Agent)', 'Player identity (User-Agent)')}</b><small>${L('لو السيرفر بيرفض (HTTP 406) جرّب هوية تانية', 'If the server rejects (HTTP 406) try another')}</small></div>
+      <select class="in" data-act="ua">${[['vlc', 'VLC'], ['smarters', 'IPTV Smarters'], ['tivimate', 'TiviMate'], ['android', 'Android'], ['chrome', 'Chrome'], ['ffmpeg', 'FFmpeg']].map(a => `<option value="${a[0]}" ${s.ua === a[0] ? 'selected' : ''}>${a[1]}</option>`).join('')}</select></div>
     <div class="row"><div><b>${L('المشغّل الأصلي (ExoPlayer)', 'Native player (ExoPlayer)')}</b><small>${nativeAvail() ? '✅ ' + L('متاح — مطلوب لقنوات HEVC/H.265', 'Available — needed for HEVC/H.265') : '❌ ' + L('غير متاح — قنوات HEVC لن تعمل', 'Unavailable — HEVC will not play')}</small><small style="direction:ltr;display:block;opacity:.7">${esc(capInfo())}</small></div></div>
     <div class="row"><div><b>${L('محرك التشغيل', 'Player engine')}</b><small>${L('الأصلي يدعم H.265 ومعظم السيرفرات', 'Native supports H.265 and most servers')}</small></div>
       <select class="in" data-act="engine"><option value="auto" ${s.engine === 'auto' ? 'selected' : ''}>${L('تلقائي (الأصلي ExoPlayer إن وُجد)', 'Auto (native ExoPlayer if available)')}</option><option value="web" ${s.engine === 'web' ? 'selected' : ''}>${L('مشغّل الويب فقط', 'Web player only')}</option><option value="hls" ${s.engine === 'hls' ? 'selected' : ''}>hls.js</option><option value="native" ${s.engine === 'native' ? 'selected' : ''}>${L('أصلي', 'Native')}</option></select></div>
@@ -905,6 +909,7 @@ const A = {
   export: () => { const b = new Blob([JSON.stringify({ app: 'tamy-iptv', user: U }, null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'tamy-iptv-backup.json'; a.click(); },
   import: () => $('#impf').click(),
   wipe: () => { if (confirm(L('مسح كل بيانات هذا الحساب؟', 'Clear all data for this account?'))) { U = DEF(); saveU(); applyTheme(); render(); } },
+  ua: el => { U.settings.ua = el.value; saveU(); toast('✓ ' + el.value); },
   engine: el => { U.settings.engine = el.value; saveU(); },
   /* auth */
   authmode: () => { authMode = authMode === 'in' ? 'up' : 'in'; renderAuth(); },

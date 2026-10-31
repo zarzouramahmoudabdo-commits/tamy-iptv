@@ -370,6 +370,7 @@ public class NativePlayerActivity extends Activity {
     private MediaItem itemFor(int i) {
         String t = i < TITLES.length ? TITLES[i] : "";
         return new MediaItem.Builder().setUri(URLS[i])
+                .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(8000).setMinOffsetMs(3000).setMaxOffsetMs(40000).build())
                 .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build()).build();
     }
 
@@ -378,7 +379,7 @@ public class NativePlayerActivity extends Activity {
         final Slot s = new Slot();
         s.idx = idx;
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(serial)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(8));
+                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(2));
         s.p = new ExoPlayer.Builder(this).setMediaSourceFactory(msf).setLoadControl(loadControl).build();
         s.v = new PlayerView(this);
         s.v.setUseController(false);
@@ -486,8 +487,7 @@ public class NativePlayerActivity extends Activity {
                 int st = s.p.getPlaybackState();
                 long dur = s.p.getDuration();
                 long left = dur == C.TIME_UNSET ? Long.MAX_VALUE : dur - s.p.getCurrentPosition();
-                if (st == Player.STATE_READY && left < 15000 && now - s.lastRefresh > 20000) refresh(s);
-                else if (st == Player.STATE_BUFFERING && s.bufSince > 0 && now - s.bufSince > 12000 && now - s.lastRefresh > 8000) refresh(s);
+                if (st == Player.STATE_BUFFERING && s.bufSince > 0 && now - s.bufSince > 12000 && now - s.lastRefresh > 8000) refresh(s);
             }
             hd.postDelayed(this, 1000);
         }
