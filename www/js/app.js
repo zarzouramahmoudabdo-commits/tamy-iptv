@@ -551,7 +551,7 @@ class NativeLoader {
   load(context, config, cb) {
     this.context = context; const st = this.stats = newStats(); st.loading.start = performance.now();
     const bin = context.responseType === 'arraybuffer';
-    const headers = Object.assign({ 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20' }, context.headers || {});
+    const headers = Object.assign({ 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 'Accept': '*/*' }, context.headers || {});
     if (context.rangeStart != null && context.rangeEnd != null) headers.Range = `bytes=${context.rangeStart}-${context.rangeEnd - 1}`;
     Capacitor.Plugins.CapacitorHttp.get({ url: context.url, headers, responseType: bin ? 'arraybuffer' : 'text', connectTimeout: 15000, readTimeout: 30000 }).then(r => {
       if (this.dead) return; st.loading.first = st.loading.end = performance.now();

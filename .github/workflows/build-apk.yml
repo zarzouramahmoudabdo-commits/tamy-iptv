@@ -32,7 +32,7 @@ jobs:
       # الـAPK مجرد "غلاف" يفتح الموقع الحي على GitHub Pages
       - name: Point shell at live site
         run: |
-          NH=$(cat capacitor.config.json package.json scripts/patch_android.py scripts/patch_native.py assets/* | sha256sum | cut -c1-8)
+          NH=$(cat capacitor.config.json package.json scripts/patch_android.py scripts/patch_native.py scripts/patch_native_pro.py assets/* | sha256sum | cut -c1-8)
           echo "NH=$NH" >> "$GITHUB_ENV"
           OWNER_LC=$(echo "$GITHUB_REPOSITORY_OWNER" | tr 'A-Z' 'a-z')
           REPO="${GITHUB_REPOSITORY#*/}"
@@ -41,11 +41,32 @@ jobs:
       - name: Copy hls.js into www
         run: npm run prepare:www
 
-      # المحاولة الأولى: مع مشغّل ExoPlayer الأصلي
-      - name: Build with native ExoPlayer
-        id: native
+      # 1) الأفضل: مشغّل ExoPlayer المتقدم (شاشات متعددة + PiP + قائمة قنوات)
+      - name: Build with advanced native player
+        id: pro
         continue-on-error: true
         run: |
+          npx cap add android
+          python3 scripts/patch_android.py
+          python3 scripts/patch_native.py
+          python3 scripts/patch_native_pro.py
+          npx @capacitor/assets generate --android --iconBackgroundColor '#0b1024' --iconBackgroundColorDark '#0b1024' --splashBackgroundColor '#0b1024' --splashBackgroundColorDark '#0b1024'
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Mark pro mode
+        if: steps.pro.outcome == 'success'
+        run: echo "MODE=pro" >> "$GITHUB_ENV"
+
+      # 2) لو فشل: المشغّل الأصلي البسيط
+      - name: Build with basic native player
+        id: native
+        if: steps.pro.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          rm -rf android
           npx cap add android
           python3 scripts/patch_android.py
           python3 scripts/patch_native.py
@@ -56,12 +77,12 @@ jobs:
           ./gradlew assembleDebug --no-daemon
 
       - name: Mark native mode
-        if: steps.native.outcome == 'success'
+        if: steps.pro.outcome == 'failure' && steps.native.outcome == 'success'
         run: echo "MODE=native" >> "$GITHUB_ENV"
 
-      # لو فشلت: نبني النسخة العادية (WebView) بدون مشغّل أصلي حتى يتوفر APK دائماً
+      # 3) لو فشل كل شيء: نسخة WebView فقط
       - name: Fallback build (web player only)
-        if: steps.native.outcome == 'failure'
+        if: steps.pro.outcome == 'failure' && steps.native.outcome == 'failure'
         run: |
           rm -rf android
           npx cap add android
