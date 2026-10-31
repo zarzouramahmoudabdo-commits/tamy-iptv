@@ -49,6 +49,24 @@ public class NativePlayerActivity extends Activity {
     private boolean live = true;
     private int retries = 0;
     private long readySince = 0;
+    private long lastRefresh = 0;
+    private final Runnable watch = new Runnable() {
+        @Override
+        public void run() {
+            if (player != null && live) {
+                long dur = player.getDuration();
+                long left = dur == C.TIME_UNSET ? Long.MAX_VALUE : dur - player.getCurrentPosition();
+                long now = SystemClock.elapsedRealtime();
+                if (player.getPlaybackState() == Player.STATE_READY && left < 15000 && now - lastRefresh > 20000) {
+                    lastRefresh = now;
+                    player.seekToDefaultPosition();
+                    player.prepare();
+                    player.play();
+                }
+            }
+            hd.postDelayed(this, 1000);
+        }
+    };
     private final Handler hd = new Handler(Looper.getMainLooper());
 
     @Override
@@ -125,7 +143,7 @@ public class NativePlayerActivity extends Activity {
                             player.prepare();
                             player.play();
                         }
-                    }, 700);
+                    }, 150);
                 } else {
                     Toast.makeText(NativePlayerActivity.this,
                             "تعذّر تشغيل البث (" + e.getErrorCodeName() + ")", Toast.LENGTH_LONG).show();
@@ -134,6 +152,7 @@ public class NativePlayerActivity extends Activity {
         });
         player.prepare();
         player.setPlayWhenReady(true);
+        hd.postDelayed(watch, 3000);
         updateTitle();
     }
 
