@@ -346,3 +346,9 @@ body{padding-top:0}
   .cat{padding:9px 12px}.mhead{padding-inline:4px}
 }
 .cnt{padding-inline:6px}
+
+/* v6: safe areas + update dot */
+#topbar{padding-top:max(8px,env(safe-area-inset-top))!important}
+#app{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+.dk{position:relative}
+.dk .rd{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#ff3b3b;box-shadow:0 0 0 2px var(--bg,#0b1024)}

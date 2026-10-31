@@ -3,6 +3,7 @@ name: Build TAMY IPTV APK
 on:
   push:
     branches: [main, master]
+    paths: ['capacitor.config.json', 'package.json', 'scripts/**', 'assets/**', '.github/workflows/build-apk.yml']
   workflow_dispatch:
 
 permissions:
@@ -27,6 +28,15 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      # الـAPK مجرد "غلاف" يفتح الموقع الحي على GitHub Pages
+      - name: Point shell at live site
+        run: |
+          NH=$(cat capacitor.config.json package.json scripts/patch_android.py scripts/patch_native.py assets/* | sha256sum | cut -c1-8)
+          echo "NH=$NH" >> "$GITHUB_ENV"
+          OWNER_LC=$(echo "$GITHUB_REPOSITORY_OWNER" | tr 'A-Z' 'a-z')
+          REPO="${GITHUB_REPOSITORY#*/}"
+          node scripts/set-url.js "https://${OWNER_LC}.github.io/${REPO}/?apk=${{ github.run_number }}&nh=${NH}"
 
       - name: Copy hls.js into www
         run: npm run prepare:www
@@ -75,5 +85,5 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: TAMY IPTV build ${{ github.run_number }} (${{ env.MODE }} player)
-          body: "Player mode: ${{ env.MODE }}"
+          body: "build ${{ github.run_number }} native ${{ env.NH }} — Player mode: ${{ env.MODE }}"
           files: TAMY-IPTV.apk

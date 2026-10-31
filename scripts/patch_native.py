@@ -227,6 +227,18 @@ public class NativePlayerPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void openExternal(PluginCall call) {
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(call.getString("url", "")));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(String.valueOf(e.getMessage()));
+        }
+    }
+
     @ActivityCallback
     private void onPlayerResult(PluginCall call, ActivityResult result) {
         JSObject o = new JSObject();

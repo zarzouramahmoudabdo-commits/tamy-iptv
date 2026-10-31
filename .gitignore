@@ -2,3 +2,5 @@ node_modules/
 android/
 www/vendor/hls.min.js
 *.apk
+www/version.js
+www/version.json

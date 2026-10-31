@@ -57,8 +57,8 @@ const QURAN_FALLBACK = [{ id: 'radio|https://stream.radiojar.com/8s5u5tpdtwzuv',
 let users = LS.get('tamy:users', []);
 let uid = LS.get('tamy:uid', null);
 let U = null;
-const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', active: 'free' } });
-function loadU() { U = LS.get('tamy:u:' + uid, null) || DEF(); U.settings = Object.assign(DEF().settings, U.settings || {}); U.pos = U.pos || {}; U.recent = U.recent || {}; U.recentL = U.recentL || {}; if (U.settings.active !== 'free' && !U.sources.some(x => x.id === U.settings.active)) U.settings.active = 'free'; applyTheme(); }
+const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', active: 'free', showFree: false, autoUpdate: true } });
+function loadU() { U = LS.get('tamy:u:' + uid, null) || DEF(); U.settings = Object.assign(DEF().settings, U.settings || {}); U.pos = U.pos || {}; U.recent = U.recent || {}; U.recentL = U.recentL || {}; U.sources = U.sources || []; if (U.settings.active !== 'free' && !U.sources.some(x => x.id === U.settings.active)) U.settings.active = 'free'; if (U.settings.active === 'free' && U.settings.showFree === false && U.sources.length) U.settings.active = U.sources[0].id; applyTheme(); }
 function saveU() { if (uid) LS.set('tamy:u:' + uid, U); }
 function applyTheme() {
   document.documentElement.dataset.theme = (U && U.settings.theme) || 'morph';
@@ -177,7 +177,7 @@ const flag = cc => cc.toUpperCase().replace(/./g, c => String.fromCodePoint(1273
 function renderTop() {
   const lbl = { home: L('الرئيسية', 'Home'), live: L('بث مباشر', 'Live TV'), movies: L('أفلام', 'Movies'), series: L('مسلسلات', 'Series'), favs: L('المفضلة', 'Favorites'), radio: L('راديو', 'Radio'), prayer: L('مواقيت الصلاة', 'Prayer'), subs: L('اشتراكاتي', 'Subscriptions'), settings: L('الإعدادات', 'Settings'), search: L('بحث', 'Search') };
   const icn = { home: 'home', live: 'tv', movies: 'film', series: 'series', favs: 'heart', radio: 'radio', prayer: 'moon', subs: 'cast', settings: 'sliders' };
-  const btn = s => `<button class="dk ${s === screen ? 'on' : ''}" data-act="go" data-to="${s}" data-l="${lbl[s]}" title="${lbl[s]}" aria-label="${lbl[s]}">${ic(icn[s])}</button>`;
+  const btn = s => `<button class="dk ${s === screen ? 'on' : ''}" data-act="go" data-to="${s}" data-l="${lbl[s]}" title="${lbl[s]}" aria-label="${lbl[s]}">${ic(icn[s])}${s === 'settings' && APK_NEW ? '<i class="rd"></i>' : ''}</button>`;
   $('#topbar').innerHTML = `<div class="hdr">
     <div class="hl">${screen !== 'home' ? `<button class="dk back" data-act="back" title="${L('رجوع', 'Back')}" aria-label="back"><span class="flip">${ic('back')}</span></button>` : ''}
       <div class="brand"><img src="icons/icon-192.png" alt=""><span>TAMY <b>IPTV</b></span></div></div>
@@ -256,12 +256,13 @@ function recentsModal() {
 
 /* ───────────── sources (الاشتراكات) ───────────── */
 const FREE = () => ({ id: 'free', name: L('مجاني', 'Free'), type: 'free' });
-const allSources = () => [FREE(), ...U.sources];
-const activeSrc = () => allSources().find(s => s.id === U.settings.active) || FREE();
+const freeOn = () => U.settings.showFree !== false || !U.sources.length;
+const allSources = () => [...(freeOn() ? [FREE()] : []), ...U.sources];
+const activeSrc = () => allSources().find(s => s.id === U.settings.active) || allSources()[0] || FREE();
 const isFreeNow = () => activeSrc().type === 'free';
 function srcBar() {
   const a = activeSrc();
-  return `<div class="seg"><button class="sg ${a.type === 'free' ? 'on' : ''}" data-act="usesrc" data-id="free">🌍 ${L('مجاني', 'Free')}</button>${U.sources.map(s => `<button class="sg ${s.id === a.id ? 'on' : ''}" data-act="usesrc" data-id="${esc(s.id)}">📡 ${esc(s.name)}</button>`).join('')}<button class="sg add" data-act="addsrc" title="${L('إضافة اشتراك', 'Add subscription')}" aria-label="add">${ic('plus', 18)}</button></div>`;
+  return `<div class="seg">${freeOn() ? `<button class="sg ${a.type === 'free' ? 'on' : ''}" data-act="usesrc" data-id="free">🌍 ${L('مجاني', 'Free')}</button>` : ''}${U.sources.map(s => `<button class="sg ${s.id === a.id ? 'on' : ''}" data-act="usesrc" data-id="${esc(s.id)}">📡 ${esc(s.name)}</button>`).join('')}<button class="sg add" data-act="addsrc" title="${L('إضافة اشتراك', 'Add subscription')}" aria-label="add">${ic('plus', 18)}</button></div>`;
 }
 
 /* ───────────── list screens (live / movies / series) ───────────── */
@@ -768,6 +769,12 @@ function vSettings(v) {
       <select class="in" data-act="engine"><option value="auto" ${s.engine === 'auto' ? 'selected' : ''}>${L('تلقائي (الأصلي ExoPlayer إن وُجد)', 'Auto (native ExoPlayer if available)')}</option><option value="web" ${s.engine === 'web' ? 'selected' : ''}>${L('مشغّل الويب فقط', 'Web player only')}</option><option value="hls" ${s.engine === 'hls' ? 'selected' : ''}>hls.js</option><option value="native" ${s.engine === 'native' ? 'selected' : ''}>${L('أصلي', 'Native')}</option></select></div>
     <div class="row"><div><b>${L('تنبيه الأذان', 'Adhan alert')}</b><small>${L('أثناء فتح التطبيق', 'While the app is open')}</small></div><button class="sw ${s.adhan ? 'on' : ''}" data-act="adhan" aria-label="adhan"></button></div>
     <div class="row"><div style="flex:1"><b>${L('رابط صوت الأذان (اختياري)', 'Custom adhan audio URL (optional)')}</b><input class="in" style="width:100%;margin-top:6px" id="adhanUrl" placeholder="https://…mp3" value="${esc(s.adhanUrl)}"></div></div></div>
+  <div class="set"><h3>📡 ${L('القنوات', 'Channels')}</h3>
+    <div class="row"><div><b>${L('إظهار القنوات المجانية', 'Show free channels')}</b><small>${L('مخفية افتراضياً — التطبيق يفتح على اشتراكك مباشرة', 'Hidden by default — the app opens on your subscription')}</small></div><button class="sw ${s.showFree ? 'on' : ''}" data-act="freetog" aria-label="free"></button></div></div>
+  <div class="set"><h3>🔄 ${L('التحديث', 'Updates')}</h3>
+    <div class="row"><div><b>${L('الإصدار', 'Version')}</b><small>${esc(APPV)}</small></div><button class="btn sm" data-act="chkupd">${L('تحقق الآن', 'Check now')}</button></div>
+    <div class="row"><div><b>${L('تحديث تلقائي', 'Auto update')}</b><small>${L('يحمّل آخر نسخة من الواجهة عند فتح التطبيق', 'Loads the latest UI when the app opens')}</small></div><button class="sw ${s.autoUpdate !== false ? 'on' : ''}" data-act="autoupd" aria-label="auto"></button></div>
+    ${APK_NEW ? `<div class="row"><div><b>🔴 ${L('نسخة APK جديدة متاحة', 'New APK available')}</b><small>${L('تحديث للمكوّنات الأصلية (المشغّل/الأيقونة)', 'Native components update')}</small></div><button class="btn sm" data-act="apkdl">${L('تنزيل', 'Download')}</button></div>` : ''}</div>
   <div class="set"><h3>💾 ${L('نسخة احتياطية', 'Backup')}</h3><div class="acts" style="justify-content:flex-start"><button class="btn" data-act="export">${L('تصدير', 'Export')}</button><button class="btn" data-act="import">${L('استيراد', 'Import')}</button><button class="btn dng" data-act="wipe">${L('مسح بيانات الحساب', 'Clear account data')}</button></div>
     <input type="file" id="impf" accept=".json" class="hidden"></div>
   <div class="set"><h3>ℹ️ TAMY IPTV 1.0</h3><small style="color:var(--mut);line-height:1.8">${L('TAMY IPTV مشغّل فقط: يعرض المحتوى الذي تضيفه أنت من اشتراكك أو قوائمك، بالإضافة إلى قنوات مجانية عامة من قوائم iptv-org. لا يوفّر التطبيق قنوات مدفوعة ولا يتحمّل مسؤولية المحتوى.', 'TAMY IPTV is a player only: it shows content you add from your own subscription or playlists, plus free public channels from iptv-org lists. It does not supply paid channels.')}</small></div>`;
@@ -874,6 +881,10 @@ const A = {
   srcsave: () => saveSource(),
   delsrc: el => { if (!confirm(L('حذف هذا الاشتراك؟', 'Delete this subscription?'))) return; const id = el.dataset.id; U.sources = U.sources.filter(x => x.id !== id); LS.del('tamy:file:' + id); [...xc.keys()].filter(k => k.startsWith(id + '|')).forEach(k => xc.delete(k)); if (U.settings.active === id) U.settings.active = 'free'; [LV, MV, SV].forEach(S => { if (S.srcId === id) S.srcId = null; }); saveU(); render(); },
   theme: el => { U.settings.theme = el.dataset.t; saveU(); applyTheme(); render(); },
+  freetog: () => { U.settings.showFree = !U.settings.showFree; if (!U.settings.showFree && U.settings.active === 'free' && U.sources.length) U.settings.active = U.sources[0].id; saveU(); LV.srcId = MV.srcId = SV.srcId = null; render(); },
+  autoupd: () => { U.settings.autoUpdate = U.settings.autoUpdate === false; saveU(); render(); },
+  chkupd: () => checkUpdate(true),
+  apkdl: () => openUrl(APK_URL || 'https://github.com/' + REPO + '/releases/latest'),
   adhan: () => { U.settings.adhan = !U.settings.adhan; saveU(); render(); if (U.settings.adhan) chime(); },
   season: el => window._drawSeason(el.dataset.sn),
   ep: el => { const list = window._eps, i = list[+el.dataset.n]; closeModalSilent(); openPlayer(i, list); },
@@ -963,15 +974,59 @@ document.addEventListener('keydown', e => {
   else if ((k === 'Escape' || k === 'GoBack' || (k === 'Backspace' && tag !== 'INPUT'))) { e.preventDefault(); A.back(); }
 });
 
+/* ───────────── updates (live site + APK) ───────────── */
+const APPV = window.TAMY_VERSION || 'dev';
+const REPO = (() => { const m = location.hostname.match(/^([^.]+)\.github\.io$/), r = location.pathname.split('/')[1]; return m && r ? m[1] + '/' + r : 'zarzouramahmoudabdo-commits/tamy-iptv'; })();
+let APK_NEW = false, APK_URL = '';
+const openUrl = u => { const P = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.TamyPlayer; if (P && P.openExternal) P.openExternal({ url: u }).catch(() => { location.href = u; }); else window.open(u, '_blank') || (location.href = u); };
+const playerOpen = () => !$('#player').classList.contains('hidden');
+async function applyUpdate(v) {
+  try { if (sessionStorage.getItem('tamy:upd') === v) return; sessionStorage.setItem('tamy:upd', v); } catch (e) {}
+  try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+  try { if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) {}
+  location.reload();
+}
+async function checkUpdate(manual) {
+  if (!/^https?:/.test(location.protocol) || APPV === 'dev') { if (manual) toast(L('نسخة تجريبية محلية', 'Local dev build')); return; }
+  if (!manual && U && U.settings.autoUpdate === false) return;
+  if (playerOpen()) return;
+  try {
+    const j = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    if (j.v && j.v !== APPV) { if (manual) toast(L('جاري تنزيل التحديث الجديد…', 'Downloading update…')); setTimeout(() => applyUpdate(j.v), manual ? 700 : 0); }
+    else if (manual) toast(L('✓ أنت على أحدث إصدار', '✓ You are up to date') + ' (' + APPV + ')');
+  } catch (e) { if (manual) toast(L('تعذّر التحقق — تأكد من الإنترنت', 'Check failed — are you online?')); }
+}
+async function checkApk() {
+  if (!isNative()) return;
+  try {
+    const q = new URLSearchParams(location.search), nh = q.get('nh');
+    if (nh) LS.set('tamy:inst', { nh, n: q.get('apk') });
+    const inst = LS.get('tamy:inst', null);
+    const r = await (await fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { cache: 'no-store' })).json();
+    const m = /build (\d+) native ([0-9a-f]+)/.exec(r.body || '');
+    const a = (r.assets || []).find(x => /\.apk$/i.test(x.name));
+    APK_URL = a ? a.browser_download_url : '';
+    const nw = !!(m && inst && inst.nh && m[2] !== inst.nh);
+    if (nw !== APK_NEW) { APK_NEW = nw; if (uid) renderTop(); }
+  } catch (e) {}
+}
+function startUpdates() {
+  setTimeout(() => { checkUpdate(false); checkApk(); }, 2500);
+  setInterval(() => { checkUpdate(false); checkApk(); }, 20 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(false); });
+}
+
 /* ───────────── boot ───────────── */
 function startApp() {
-  U.settings.active = 'free'; history.replaceState({ s: 'home' }, ''); history.pushState({ s: 'live' }, ''); screen = 'live'; LV.srcId = null; render();
+  if (!allSources().some(s => s.id === U.settings.active)) U.settings.active = allSources()[0].id;
+  history.replaceState({ s: 'home' }, ''); history.pushState({ s: 'live' }, ''); screen = 'live'; LV.srcId = null; render();
 }
 function boot() {
   history.replaceState({ s: 'home' }, '');
   if (uid && users.some(u => u.id === uid)) { loadU(); startApp(); } else { uid = null; renderAuth(); }
   setTimeout(() => { const sp = $('#splash'); if (sp) { sp.classList.add('out'); setTimeout(() => sp.remove(), 600); } }, 900);
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isNative()) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http') && (!isNative() || location.protocol === 'https:')) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+  startUpdates();
 }
 window.__tamy = { parseM3U, xBase };
 boot();

@@ -40,3 +40,12 @@ if "screenOrientation" not in s.split("<activity", 1)[1].split(">", 1)[0]:
 
 p.write_text(s, encoding="utf-8")
 print("AndroidManifest.xml patched")
+
+# 5) إخفاء شريط الحالة (fullscreen) حتى لا يغطي الأيقونات العلوية
+st = pathlib.Path("android/app/src/main/res/values/styles.xml")
+if st.exists():
+    t = st.read_text(encoding="utf-8")
+    if "windowFullscreen" not in t:
+        t = re.sub(r'(<style name="AppTheme\.NoActionBar"[^>]*>)', r'\1\n        <item name="android:windowFullscreen">true</item>', t, count=1)
+        st.write_text(t, encoding="utf-8")
+        print("styles.xml patched (fullscreen)")

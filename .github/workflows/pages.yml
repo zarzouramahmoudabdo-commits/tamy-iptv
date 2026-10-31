@@ -1,0 +1,41 @@
+name: Deploy site (auto-update)
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['www/**', '.github/workflows/pages.yml', 'scripts/prepare-www.js', 'package.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.dep.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run prepare:www
+      - name: Stamp version
+        run: |
+          V="$(date -u +%Y%m%d.%H%M%S)-${GITHUB_SHA::7}"
+          echo "window.TAMY_VERSION='$V';" > www/version.js
+          echo "{\"v\":\"$V\"}" > www/version.json
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+      - id: dep
+        uses: actions/deploy-pages@v4
