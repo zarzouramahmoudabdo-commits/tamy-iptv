@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      MODE: web
     steps:
       - uses: actions/checkout@v4
 
@@ -29,21 +31,34 @@ jobs:
       - name: Copy hls.js into www
         run: npm run prepare:www
 
-      - name: Add Android platform
-        run: npx cap add android
-
-      - name: Patch manifest (cleartext + Android TV)
-        run: python3 scripts/patch_android.py
-
-      - name: Generate launcher icons
-        run: npx @capacitor/assets generate --android --iconBackgroundColor '#0b1024' --iconBackgroundColorDark '#0b1024' --splashBackgroundColor '#0b1024' --splashBackgroundColorDark '#0b1024'
-
-      - name: Sync web assets
-        run: npx cap sync android
-
-      - name: Build debug APK
-        working-directory: android
+      # المحاولة الأولى: مع مشغّل ExoPlayer الأصلي
+      - name: Build with native ExoPlayer
+        id: native
+        continue-on-error: true
         run: |
+          npx cap add android
+          python3 scripts/patch_android.py
+          python3 scripts/patch_native.py
+          npx @capacitor/assets generate --android --iconBackgroundColor '#0b1024' --iconBackgroundColorDark '#0b1024' --splashBackgroundColor '#0b1024' --splashBackgroundColorDark '#0b1024'
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Mark native mode
+        if: steps.native.outcome == 'success'
+        run: echo "MODE=native" >> "$GITHUB_ENV"
+
+      # لو فشلت: نبني النسخة العادية (WebView) بدون مشغّل أصلي حتى يتوفر APK دائماً
+      - name: Fallback build (web player only)
+        if: steps.native.outcome == 'failure'
+        run: |
+          rm -rf android
+          npx cap add android
+          python3 scripts/patch_android.py
+          npx @capacitor/assets generate --android --iconBackgroundColor '#0b1024' --iconBackgroundColorDark '#0b1024' --splashBackgroundColor '#0b1024' --splashBackgroundColorDark '#0b1024'
+          npx cap sync android
+          cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
@@ -59,5 +74,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: TAMY IPTV build ${{ github.run_number }}
+          name: TAMY IPTV build ${{ github.run_number }} (${{ env.MODE }} player)
+          body: "Player mode: ${{ env.MODE }}"
           files: TAMY-IPTV.apk

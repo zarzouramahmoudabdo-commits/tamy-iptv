@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<div id="splash"><img src="icons/icon-512.png" alt=""><b>TAMY <i>IPTV</i></b></div>
 <div id="app">
   <div id="topbar"></div>
   <main id="view" tabindex="-1"></main>
@@ -17,8 +18,8 @@
 <div id="miniradio" class="hidden"></div>
 
 <div id="player" class="hidden" aria-label="player">
-  <video id="vid" playsinline poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
-  <iframe id="yt" class="hidden" allow="autoplay; fullscreen" allowfullscreen></iframe>
+  <video id="vid" playsinline></video>
+  <iframe id="yt" class="hidden" allow="autoplay; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
   <div id="pl-spin" class="spin hidden"></div>
   <div id="pl-err" class="pl-err hidden"></div>
   <div id="pl-top" class="pl-bar top"></div>

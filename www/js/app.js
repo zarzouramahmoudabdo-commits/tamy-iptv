@@ -82,7 +82,9 @@ function parseM3U(txt) {
     } else if (l[0] !== '#' && /^(https?|rtmp|rtsp):/i.test(l)) {
       if (!meta) meta = { name: l.split('/').pop(), logo: '', group: '' };
       const kind = /\/series\//i.test(l) ? 'series' : (/\/movie\//i.test(l) || /\.(mp4|mkv|avi)(\?|$)/i.test(l)) ? 'movie' : 'live';
-      out.push({ id: kind + '|' + l, name: meta.name, logo: meta.logo, group: meta.group || '—', url: l, kind });
+      let u = l; const ym = l.match(/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([\w-]{11})/i);
+      if (ym) u = 'yt:' + ym[1]; else { const cm = l.match(/youtube\.com\/channel\/(UC[\w-]{22})/i); if (cm) u = 'ytc:' + cm[1]; }
+      out.push({ id: kind + '|' + l, name: meta.name, logo: meta.logo, group: meta.group || '—', url: u, kind });
       meta = null;
     }
   }
@@ -150,17 +152,45 @@ function nav(s, push = true) {
 function render() {
   if (!uid) return renderAuth();
   renderTop();
-  const v = $('#view');
+  const v = $('#view'); v.classList.toggle('fix', ['home', 'live', 'movies', 'series'].includes(screen));
   ({ home: vHome, live: () => vList(LV), movies: () => vList(MV), series: () => vList(SV), favs: vFavs, subs: vSubs, radio: vRadio, prayer: vPrayer, settings: vSettings }[screen] || vHome)(v);
 }
+/* ───────────── icons ───────────── */
+const IC = {
+  home: '<path d="M3 11l9-8 9 8"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
+  tv: '<rect x="3" y="7" width="18" height="12" rx="2.5"/><path d="M8 2.5l4 4 4-4"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  series: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M7 3.5h10"/><path d="M10.5 10.5l4.5 2.8-4.5 2.8z"/>',
+  heart: '<path d="M20.8 5.6a5 5 0 00-7.1 0L12 7.3l-1.7-1.7a5 5 0 10-7.1 7.1L12 21l8.8-8.3a5 5 0 000-7.1z"/>',
+  radio: '<rect x="3" y="9" width="18" height="12" rx="2"/><path d="M7 9l11-6"/><circle cx="8.5" cy="15" r="2.5"/><path d="M15 13h3M15 17h3"/>',
+  moon: '<path d="M21 13a9 9 0 11-9.9-9 7 7 0 009.9 9z"/>',
+  cast: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 010 8.4M7.8 16.2a6 6 0 010-8.4M19 5a10 10 0 010 14M5 19a10 10 0 010-14"/>',
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  back: '<path d="M5 12h14M13 6l6 6-6 6"/>'
+};
+const ic = (n, s = 22) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || ''}</svg>`;
+const flag = cc => cc.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0)));
+
 function renderTop() {
-  const lbl = { home: L('الهوم', 'Home'), live: L('البث المباشر', 'Live TV'), movies: L('أفلام', 'Movies'), series: L('مسلسلات', 'Series'), favs: L('المفضلة', 'Favorites'), subs: L('اشتراكاتي', 'Subscriptions'), radio: L('الراديو', 'Radio'), prayer: L('مواقيت الصلاة', 'Prayer'), settings: L('الإعدادات', 'Settings') };
-  $('#topbar').innerHTML = `
-  <div class="tb-row"><div class="brand"><img src="icons/icon-192.png" alt=""><span>TAMY <b>IPTV</b></span></div><div class="sp"></div>
-    <button class="ibtn" data-act="search" aria-label="search">🔍</button>
-    <button class="ibtn" data-act="back" aria-label="back">${lang === 'ar' ? '→' : '←'}</button></div>
-  <div class="pills">${SCREENS.map(s => `<button class="pill ${s === screen ? 'on' : ''}" data-act="go" data-to="${s}">${lbl[s]}</button>`).join('')}</div>`;
+  const lbl = { home: L('الرئيسية', 'Home'), live: L('بث مباشر', 'Live TV'), movies: L('أفلام', 'Movies'), series: L('مسلسلات', 'Series'), favs: L('المفضلة', 'Favorites'), radio: L('راديو', 'Radio'), prayer: L('مواقيت الصلاة', 'Prayer'), subs: L('اشتراكاتي', 'Subscriptions'), settings: L('الإعدادات', 'Settings'), search: L('بحث', 'Search') };
+  const icn = { home: 'home', live: 'tv', movies: 'film', series: 'series', favs: 'heart', radio: 'radio', prayer: 'moon', subs: 'cast', settings: 'sliders' };
+  const btn = s => `<button class="dk ${s === screen ? 'on' : ''}" data-act="go" data-to="${s}" data-l="${lbl[s]}" title="${lbl[s]}" aria-label="${lbl[s]}">${ic(icn[s])}</button>`;
+  $('#topbar').innerHTML = `<div class="hdr">
+    <div class="hl">${screen !== 'home' ? `<button class="dk back" data-act="back" title="${L('رجوع', 'Back')}" aria-label="back"><span class="flip">${ic('back')}</span></button>` : ''}
+      <div class="brand"><img src="icons/icon-192.png" alt=""><span>TAMY <b>IPTV</b></span></div></div>
+    <div class="hm"><span class="hclk">--:--</span><small class="hdate"></small></div>
+    <nav class="dock">${['home', 'live', 'movies', 'series', 'favs', 'radio', 'prayer', 'subs', 'settings'].map(btn).join('')}<button class="dk" data-act="search" data-l="${lbl.search}" title="${lbl.search}" aria-label="search">${ic('search')}</button></nav></div>`;
+  tickHdr();
 }
+function tickHdr() {
+  const c = $('.hclk'), d = $('.hdate'); if (!c) return; const n = new Date();
+  c.textContent = n.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  d.textContent = n.toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
 const M = { swallow: false };
 window.addEventListener('popstate', e => {
   if (M.swallow) { M.swallow = false; return; }
@@ -188,7 +218,7 @@ function closeModalSilent() { const m = $('#modal'); m.classList.add('hidden'); 
 /* ───────────── auth ───────────── */
 let authMode = 'in';
 function renderAuth() {
-  $('#topbar').innerHTML = '';
+  $('#topbar').innerHTML = ''; $('#view').classList.remove('fix');
   $('#view').innerHTML = `<div class="auth"><img src="icons/icon-512.png" alt="">
     <h1>TAMY IPTV</h1><p>${L('تلفزيونك. عالمك.', 'Your TV. Your world.')}</p>
     ${users.length && authMode === 'in' ? `<select class="in" id="a-user">${users.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>` : ''}
@@ -201,51 +231,54 @@ function renderAuth() {
     <p class="note">${L('الحسابات محفوظة على جهازك فقط.', 'Accounts are stored on this device only.')}</p>
     <button class="chip" data-act="lang">${lang === 'ar' ? 'English' : 'العربية'}</button></div>`;
 }
-async function enter(id) { uid = id; LS.set('tamy:uid', id); loadU(); history.replaceState({ s: 'home' }, ''); screen = 'home'; render(); }
+async function enter(id) { uid = id; LS.set('tamy:uid', id); loadU(); startApp(); }
 
 /* ───────────── home ───────────── */
 function vHome(v) {
-  const r = U.recent, src = activeSrc(), sn = esc(src.name);
-  const cc = (k, ic, label, it) => `<div class="cc"><div style="min-width:0"><small>${label}</small><b>${it ? esc(it.name) : (k === 'live' ? L('لا قناة بعد', 'No channel yet') : k === 'movie' ? L('لا فيلم بعد', 'No movie yet') : L('لا مسلسل بعد', 'No series yet'))}</b>
-    <button class="btn sm" data-act="${it ? 'resume' : 'go'}" data-k="${k}" data-to="${k === 'live' ? 'live' : k === 'movie' ? 'movies' : 'series'}">${it ? L('تشغيل', 'Play') : L('تصفّح', 'Browse')}</button></div><span style="font-size:34px">${ic}</span></div>`;
-  v.innerHTML = srcBar() + `
-  <section class="hero"><small>TAMY · IPTV</small><h1>${L('تلفزيونك. عالمك.', 'Your TV. Your world.')}</h1>
-    <p>${L('الاشتراك النشط: ', 'Active subscription: ')}<b>${sn}</b></p>
-    <button class="btn pri" data-act="go" data-to="live">▶ ${L('شاهد الآن', 'Watch now')}</button></section>
-  <div class="tiles">
-    <button class="tile t1" data-act="go" data-to="live"><span class="ic">📺</span><b>${L('بث مباشر', 'Live TV')}</b><span>${sn}</span></button>
-    <button class="tile t2" data-act="go" data-to="movies"><span class="ic">🎬</span><b>${L('أفلام', 'Movies')}</b><span>${sn}</span></button>
-    <button class="tile t3" data-act="go" data-to="series"><span class="ic">🎞️</span><b>${L('مسلسلات', 'Series')}</b><span>${sn}</span></button>
-    <button class="tile t4" data-act="go" data-to="favs"><span class="ic">♥</span><b>${L('المفضلة', 'Favorites')}</b><span>${L('محفوظاتك', 'Your saved titles')}</span></button>
-    <button class="tile t5" data-act="go" data-to="radio"><span class="ic">🎵</span><b>${L('راديو', 'Music & Radio')}</b><span>${L('قرآن و FM', 'Quran & FM')}</span></button>
-    <button class="tile t6" data-act="go" data-to="prayer"><span class="ic">🕌</span><b>${L('مواقيت الصلاة', 'Prayer times')}</b><span>${L('الأذان والمواقيت', 'Adhan & times')}</span></button>
-  </div>
-  <h2 class="sec">${L('كمّل المشاهدة', 'Continue watching')}</h2>
-  <div class="cont">${cc('live', '📺', L('آخر قناة', 'Last channel'), r.live)}${cc('movie', '🎬', L('آخر فيلم', 'Last movie'), r.movie)}${cc('series', '🎞️', L('آخر مسلسل', 'Last series'), r.series)}</div>
-  <p class="note">${L('المحتوى من اشتراكك — TAMY IPTV لا يوفّر قنوات مدفوعة. القنوات المجانية المعروضة من قوائم عامة (iptv-org).', 'Content comes from your subscription — TAMY IPTV does not supply paid channels. Free channels come from public lists (iptv-org).')}</p>`;
+  const src = activeSrc(), sn = esc(src.name), r = U.recent;
+  const cnt = k => { const a = xc.get(src.id + '|' + k); return a ? a.length + ' ' + L('عنصر', 'items') : (src.type === 'free' ? L('قنوات عالمية مجانية', 'Free world channels') : sn); };
+  const info = src.info, exp = info && info.exp ? new Date(info.exp * 1000).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-GB') : '';
+  const st = (n, label, act, to) => `<button class="stile" data-act="${act}" data-to="${to}">${ic(n, 30)}<span>${label}</span></button>`;
+  v.innerHTML = `<div class="hwrap">${srcBar()}
+    <div class="hgrid">
+      <button class="htile live" data-act="go" data-to="live" style="--d:0ms"><span class="big">${ic('tv', 90)}</span><b>${L('تلفزيون مباشر', 'Live TV')}</b><small>${cnt('live')}</small></button>
+      <button class="htile mov" data-act="go" data-to="movies" style="--d:80ms"><span class="big">${ic('film', 64)}</span><b>${L('أفلام', 'Movies')}</b><small>${src.type === 'free' ? L('من اشتراكك', 'From your subscription') : cnt('movie')}</small></button>
+      <button class="htile ser" data-act="go" data-to="series" style="--d:160ms"><span class="big">${ic('series', 64)}</span><b>${L('مسلسلات', 'Series')}</b><small>${src.type === 'free' ? L('من اشتراكك', 'From your subscription') : cnt('series')}</small></button>
+      <div class="smalls">${st('heart', L('المفضلة', 'Favorites'), 'go', 'favs')}${st('clock', L('آخر ما شاهدته', 'Recently watched'), 'recents', '')}${st('radio', L('راديو', 'Radio'), 'go', 'radio')}${st('moon', L('مواقيت الصلاة', 'Prayer times'), 'go', 'prayer')}</div>
+    </div>
+    <div class="hfoot"><span>${L('الاشتراك الحالي: ', 'Current: ')}<b>${sn}</b></span>${exp ? `<span>${L('ينتهي: ', 'Expires: ')}<b>${exp}</b></span>` : ''}<span class="mut">${L('TAMY IPTV مشغّل فقط — المحتوى من اشتراكك والمجاني من قوائم عامة', 'Player only — content from your subscription; free from public lists')}</span></div></div>`;
+}
+function recentsModal() {
+  const r = U.recent, row = (k, ic2, label) => r[k] ? `<div class="ep"><span>${ic2} ${label}: <b>${esc(r[k].name)}</b></span><button class="btn sm pri" data-act="resume" data-k="${k}">▶</button></div>` : '';
+  const html = row('live', '📺', L('قناة', 'Channel')) + row('movie', '🎬', L('فيلم', 'Movie')) + row('series', '🎞️', L('مسلسل', 'Series'));
+  modal(`<h3>${L('آخر ما شاهدته', 'Recently watched')}</h3>${html || `<p style="color:var(--mut)">${L('لم تشاهد شيئاً بعد', 'Nothing watched yet')}</p>`}<div class="acts"><button class="btn" data-act="mclose">${L('إغلاق', 'Close')}</button></div>`);
 }
 
 /* ───────────── sources (الاشتراكات) ───────────── */
-const FREE = () => ({ id: 'free', name: L('TAMY مجاني', 'TAMY Free'), type: 'free' });
+const FREE = () => ({ id: 'free', name: L('مجاني', 'Free'), type: 'free' });
 const allSources = () => [FREE(), ...U.sources];
 const activeSrc = () => allSources().find(s => s.id === U.settings.active) || FREE();
+const isFreeNow = () => activeSrc().type === 'free';
 function srcBar() {
-  const a = activeSrc().id;
-  return `<div class="chips srcbar">${allSources().map(s => `<button class="chip ${s.id === a ? 'on' : ''}" data-act="usesrc" data-id="${esc(s.id)}">${s.type === 'free' ? '🌍' : '📡'} ${esc(s.name)}</button>`).join('')}<button class="chip" data-act="addsrc">＋ ${L('اشتراك', 'Add')}</button><button class="chip" data-act="go" data-to="subs">⚙ ${L('إدارة', 'Manage')}</button></div>`;
+  const a = activeSrc();
+  return `<div class="seg"><button class="sg ${a.type === 'free' ? 'on' : ''}" data-act="usesrc" data-id="free">🌍 ${L('مجاني', 'Free')}</button>${U.sources.map(s => `<button class="sg ${s.id === a.id ? 'on' : ''}" data-act="usesrc" data-id="${esc(s.id)}">📡 ${esc(s.name)}</button>`).join('')}<button class="sg add" data-act="addsrc" title="${L('إضافة اشتراك', 'Add subscription')}" aria-label="add">${ic('plus', 18)}</button></div>`;
 }
 
 /* ───────────── list screens (live / movies / series) ───────────── */
-const mk = kind => ({ kind, srcId: null, cat: null, q: '', items: [], groups: [], shown: 80, loading: false, err: '', loaded: false, pane: 'cats' });
+const mk = kind => ({ kind, srcId: null, cat: null, q: '', items: [], groups: [], fg: 'all', shown: 80, loading: false, err: '', loaded: false, pane: 'cats' });
 const LV = mk('live'), MV = mk('movie'), SV = mk('series');
 let curList = [];
 const ICON = { live: '📺', movie: '🎬', series: '🎞️', radio: '📻' };
-const wide = () => matchMedia('(min-width:900px)').matches;
-const isFreeCat = c => /^(free|cat):/.test(c || '');
+const wide = () => matchMedia('(min-width:700px)').matches;
+const isFreeCat = c => /^(free|cat|lang):/.test(c || '');
 const stateOf = () => ({ live: LV, movies: MV, series: SV }[screen]);
-const freeUrl = id => id === 'free:world' ? 'https://iptv-org.github.io/iptv/index.m3u' : id.startsWith('cat:') ? `https://iptv-org.github.io/iptv/categories/${id.slice(4)}.m3u` : `https://iptv-org.github.io/iptv/countries/${id.slice(5).toLowerCase()}.m3u`;
+const FB = 'https://iptv-org.github.io/iptv/';
+const freeUrls = id => id === 'free:EG' ? [FB + 'countries/eg.m3u', 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_egypt.m3u8']
+  : id === 'free:world' ? [FB + 'index.m3u'] : id === 'lang:ara' ? [FB + 'languages/ara.m3u']
+  : id.startsWith('cat:') ? [FB + 'categories/' + id.slice(4) + '.m3u'] : [FB + 'countries/' + id.slice(5).toLowerCase() + '.m3u'];
 
 function syncState(S, src) {
-  if (S.srcId !== src.id) Object.assign(S, { srcId: src.id, cat: null, q: '', items: [], groups: [], loaded: false, loading: false, err: '', shown: 80, pane: 'cats' });
+  if (S.srcId !== src.id) Object.assign(S, { srcId: src.id, cat: null, q: '', items: [], groups: [], fg: 'all', loaded: false, loading: false, err: '', shown: 80, pane: 'cats' });
 }
 async function loadList(S) {
   const sid = S.srcId, src = activeSrc();
@@ -258,10 +291,15 @@ async function loadList(S) {
   S.loading = false; S.loaded = !S.err; repaint(S);
 }
 async function loadFree(S, id) {
-  const sid = S.srcId; S.items = []; S.loading = true; S.err = ''; repaint(S);
-  try { const r = await loadM3U(freeUrl(id)); if (S.cat === id) S.items = r; } catch (e) { if (S.cat === id) S.err = msg(e); }
+  const sid = S.srcId; S.items = []; S.groups = []; S.fg = 'all'; S.loading = true; S.err = ''; repaint(S);
+  const rs = await Promise.allSettled(freeUrls(id).map(loadM3U));
   if (S.srcId !== sid || S.cat !== id) return;
-  S.loading = false; repaint(S);
+  const seen = new Set(), items = []; let err = '';
+  rs.forEach(r => { if (r.status === 'fulfilled') r.value.forEach(i => { if (!seen.has(i.url)) { seen.add(i.url); items.push(i); } }); else err = err || msg(r.reason); });
+  if (items.length) err = ''; else err = err || L('لا توجد قنوات في هذه القائمة', 'No channels in this list');
+  items.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+  const g = new Map(); items.forEach(i => g.set(i.group, (g.get(i.group) || 0) + 1));
+  S.groups = [...g].sort((a, b) => b[1] - a[1]); S.items = items; S.err = err; S.loading = false; repaint(S);
 }
 const repaint = S => { if (S === stateOf()) render(); };
 function recentOf(S) { return (U.recentL[S.kind] || []).filter(i => i.src === S.srcId); }
@@ -270,6 +308,7 @@ function baseItems(S) {
   const c = S.cat;
   if (c === 'recent') return recentOf(S);
   if (c === 'favs') return favsOf(S);
+  if (isFreeCat(c)) return S.fg && S.fg !== 'all' ? S.items.filter(i => i.group === S.fg) : S.items;
   if (c && c.startsWith('g:') && !S.q.trim()) return S.items.filter(i => i.group === c.slice(2));
   return S.items;
 }
@@ -283,35 +322,31 @@ function catName(S) {
   if (c === 'recent') return L('شوهدت مؤخراً', 'Recently viewed');
   if (c === 'favs') return L('المفضلة', 'Favorites');
   if (c === 'all') return L('الكل', 'All');
-  if (c === 'free:EG') return L('قنوات مصر', 'Egypt');
-  if (c === 'free:world') return L('كل العالم', 'World');
+  if (c === 'free:EG') return flag('EG') + ' ' + L('قنوات مصر', 'Egypt');
+  if (c === 'free:world') return '🌍 ' + L('كل قنوات العالم', 'All world channels');
+  if (c === 'lang:ara') return '🌐 ' + L('كل القنوات العربية', 'All Arabic channels');
   if (c && c.startsWith('g:')) return c.slice(2);
-  const k = (c || '').slice(c && c.startsWith('cat:') ? 4 : 5), f = (c && c.startsWith('cat:') ? CATS : COUNTRIES).find(x => x[0].toLowerCase() === k.toLowerCase());
-  return f ? f[lang === 'ar' ? 1 : 2] : '';
+  const isCat = (c || '').startsWith('cat:'), k = (c || '').slice(isCat ? 4 : 5), f = (isCat ? CATS : COUNTRIES).find(x => x[0].toLowerCase() === k.toLowerCase());
+  return f ? (isCat ? '' : flag(f[0]) + ' ') + f[lang === 'ar' ? 1 : 2] : '';
 }
 function catsHtml(S, src) {
-  const e = (id, label, n, ic) => `<button class="cat ${S.cat === id ? 'on' : ''}" data-act="cat" data-c="${esc(id)}"><span>${ic ? ic + ' ' : ''}${esc(label)}</span><i>${n == null ? '' : n}</i></button>`;
+  const e = (id, label, n, ic2) => `<button class="cat ${S.cat === id ? 'on' : ''}" data-act="cat" data-c="${esc(id)}"><span>${ic2 ? ic2 + ' ' : ''}${esc(label)}</span><i>${n == null ? '' : n}</i></button>`;
   const head = t => `<div class="cathead">${t}</div>`;
   let h = e('recent', L('شوهدت مؤخراً', 'Recently viewed'), recentOf(S).length, '🕘') + e('favs', L('المفضلة', 'Favorites'), favsOf(S).length, '★');
   if (src.type === 'free') {
-    h += e('free:EG', L('قنوات مصر', 'Egypt'), null, '🇪🇬') + e('free:world', L('كل قنوات العالم', 'All world channels'), null, '🌍');
-    h += head(L('حسب الدولة', 'BY COUNTRY')) + COUNTRIES.map(c => e('free:' + c[0], c[lang === 'ar' ? 1 : 2])).join('');
-    h += head(L('حسب التصنيف', 'BY CATEGORY')) + CATS.map(c => e('cat:' + c[0], c[lang === 'ar' ? 1 : 2])).join('');
+    h += e('free:EG', L('قنوات مصر', 'Egypt'), null, flag('EG')) + e('free:world', L('كل قنوات العالم', 'All world channels'), null, '🌍') + e('lang:ara', L('كل القنوات العربية', 'All Arabic channels'), null, '🌐');
+    h += head(L('اختر الدولة', 'COUNTRY')) + COUNTRIES.filter(c => c[0] !== 'EG').map(c => e('free:' + c[0], c[lang === 'ar' ? 1 : 2], null, flag(c[0]))).join('');
+    h += head(L('حسب التصنيف', 'CATEGORY')) + CATS.map(c => e('cat:' + c[0], c[lang === 'ar' ? 1 : 2], null, '')).join('');
   } else {
     h += e('all', L('الكل', 'All'), S.items.length, '☰') + head(L('القوائم', 'CATEGORIES')) + S.groups.map(([g, n]) => e('g:' + g, g, n)).join('');
   }
   return h;
 }
-function rowHtml(i, idx) {
-  const ph = '📺';
-  return `<div class="crow" tabindex="0" data-act="open" data-i="${idx}"><span class="no">${idx + 1}</span>
-    <span class="lg">${i.logo ? `<img loading="lazy" referrerpolicy="no-referrer" src="${esc(i.logo)}" alt="" onerror="this.outerHTML='${ph}'">` : ph}</span>
-    <span class="t">${esc(i.name)}</span><button class="fv ${isFav(i.id) ? 'on' : ''}" data-act="fav" data-i="${idx}" aria-label="fav">${isFav(i.id) ? '★' : '☆'}</button></div>`;
-}
 function cardHtml(i, idx) {
-  const poster = i.kind === 'movie' || i.kind === 'series';
+  const poster = i.kind === 'movie' || i.kind === 'series', free = isFreeNow() && screen !== 'favs';
   const ph = `<span class="ph">${ICON[i.kind] || '📺'}</span>`;
-  return `<div class="card ${poster ? 'p' : ''}" tabindex="0" data-act="open" data-i="${idx}">
+  return `<div class="card ${poster ? 'p' : 'l'}" tabindex="0" data-act="open" data-i="${idx}" style="--d:${Math.min(idx, 18) * 28}ms">
+    ${free ? `<span class="fb">${L('مجاني', 'FREE')}</span>` : ''}
     <div class="im">${i.logo ? `<img loading="lazy" referrerpolicy="no-referrer" src="${esc(i.logo)}" alt="" onerror="this.outerHTML='${ph}'">` : ph}</div>
     <div class="nm">${esc(i.name)}</div>
     <button class="fv ${isFav(i.id) ? 'on' : ''}" data-act="fav" data-i="${idx}" aria-label="fav">${isFav(i.id) ? '★' : '☆'}</button></div>`;
@@ -321,43 +356,46 @@ function paintMain(S) {
   const sp = $('.split'); if (sp) sp.dataset.pane = S.pane;
   $$('#cats .cat').forEach(b => b.classList.toggle('on', b.dataset.c === S.cat));
   const t = $('#mtitle'); if (t) t.textContent = catName(S);
-  const cn = $('#cnt');
-  if (S.loading && isFreeCat(S.cat)) { g.innerHTML = `<div class="empty"><div class="spin" style="position:static;margin:0 auto 14px"></div>${L('جارٍ التحميل…', 'Loading…')}</div>`; if (cn) cn.textContent = ''; return; }
-  if (S.err && isFreeCat(S.cat)) { g.innerHTML = `<div class="empty"><div class="big">⚠️</div><p>${esc(S.err)}</p><button class="btn" data-act="reload">${L('إعادة المحاولة', 'Retry')}</button></div>`; return; }
+  const cn = $('#cnt'), gc = $('#gchips');
+  const spin = `<div class="empty"><div class="spin" style="position:static;margin:0 auto 14px"></div>${L('جارٍ التحميل…', 'Loading…')}</div>`;
+  if (S.loading && isFreeCat(S.cat)) { g.innerHTML = spin; if (cn) cn.textContent = ''; if (gc) gc.innerHTML = ''; return; }
+  if (S.err && isFreeCat(S.cat)) { g.innerHTML = `<div class="empty"><div class="big">⚠️</div><p>${esc(S.err)}</p><button class="btn" data-act="reload">${L('إعادة المحاولة', 'Retry')}</button></div>`; if (gc) gc.innerHTML = ''; return; }
+  if (gc) gc.innerHTML = isFreeCat(S.cat) && S.groups.length > 1 ? `<button class="chip ${S.fg === 'all' ? 'on' : ''}" data-act="fgrp" data-g="all">${L('الكل', 'All')}</button>` + S.groups.slice(0, 14).map(([n, c]) => `<button class="chip ${S.fg === n ? 'on' : ''}" data-act="fgrp" data-g="${esc(n)}">${esc(n)} · ${c}</button>`).join('') : '';
   if (!S.cat && !S.q.trim()) { g.innerHTML = ''; return; }
   const list = curList = filtered(S); if (cn) cn.textContent = list.length;
   if (!list.length) { g.innerHTML = `<div class="empty"><div class="big">${S.cat === 'favs' ? '★' : S.cat === 'recent' ? '🕘' : '🔎'}</div><p>${L('لا توجد عناصر هنا', 'Nothing here')}</p></div>`; return; }
-  const shown = list.slice(0, S.shown), live = S.kind === 'live';
-  g.innerHTML = (live ? `<div class="rows">${shown.map((i, n) => rowHtml(i, n)).join('')}</div>` : `<div class="grid poster">${shown.map((i, n) => cardHtml(i, n)).join('')}</div>`) +
+  const shown = list.slice(0, S.shown), poster = S.kind !== 'live';
+  g.innerHTML = `<div class="grid ${poster ? 'poster' : ''}">${shown.map((i, n) => cardHtml(i, n)).join('')}</div>` +
     (list.length > shown.length ? `<button class="btn more" id="more" data-act="more">${L('عرض المزيد', 'Show more')} (${list.length - shown.length})</button>` : '');
   const m = $('#more'); if (m && 'IntersectionObserver' in window) { const io = new IntersectionObserver(en => { if (en[0].isIntersecting) { io.disconnect(); S.shown += 80; paintMain(S); } }, { rootMargin: '700px' }); io.observe(m); }
 }
 function selectCat(S, id) {
-  S.cat = id; S.shown = 80; S.q = ''; const q = $('#q'); if (q) q.value = '';
+  S.cat = id; S.shown = 80; S.q = ''; S.fg = 'all'; const q = $('#q'); if (q) q.value = '';
   if (!wide() && S.pane !== 'items') { S.pane = 'items'; history.pushState({ s: screen, pane: 1 }, ''); }
   if (isFreeCat(id)) loadFree(S, id); else paintMain(S);
-  window.scrollTo(0, 0);
+  const gr = $('#grid'); if (gr) gr.scrollTop = 0;
 }
 function vList(S) {
   const v = $('#view'), src = activeSrc(); syncState(S, src);
   const head = srcBar();
   if (src.type === 'free' && S.kind !== 'live') {
-    v.innerHTML = head + `<div class="empty"><div class="big">${ICON[S.kind]}</div><h3>${S.kind === 'movie' ? L('الأفلام من اشتراكك', 'Movies from your subscription') : L('المسلسلات من اشتراكك', 'Series from your subscription')}</h3>
-      <p>${L('اختر اشتراكك من الأعلى أو أضف اشتراك Xtream / M3U.', 'Pick your subscription above or add an Xtream / M3U one.')}</p><button class="btn pri" data-act="addsrc">＋ ${L('إضافة اشتراك', 'Add subscription')}</button></div>`; return;
+    v.innerHTML = `<div class="lwrap">${head}<div class="empty"><div class="big">${ICON[S.kind]}</div><h3>${S.kind === 'movie' ? L('الأفلام من اشتراكك', 'Movies from your subscription') : L('المسلسلات من اشتراكك', 'Series from your subscription')}</h3>
+      <p>${L('اختر اشتراكك من الأعلى أو أضف اشتراك Xtream / M3U.', 'Pick your subscription above or add an Xtream / M3U one.')}</p><button class="btn pri" data-act="addsrc">＋ ${L('إضافة اشتراك', 'Add subscription')}</button></div></div>`; return;
   }
   if (src.type !== 'free' && !S.loaded) {
     if (!S.loading && !S.err) { loadList(S); }
-    v.innerHTML = head + (S.err ? `<div class="empty"><div class="big">⚠️</div><p>${esc(S.err)}</p><button class="btn" data-act="reload">${L('إعادة المحاولة', 'Retry')}</button></div>` : `<div class="empty"><div class="spin" style="position:static;margin:0 auto 14px"></div>${L('جارٍ تحميل ', 'Loading ')}${esc(src.name)}…</div>`);
+    v.innerHTML = `<div class="lwrap">${head}` + (S.err ? `<div class="empty"><div class="big">⚠️</div><p>${esc(S.err)}</p><button class="btn" data-act="reload">${L('إعادة المحاولة', 'Retry')}</button></div>` : `<div class="empty"><div class="spin" style="position:static;margin:0 auto 14px"></div>${L('جارٍ تحميل ', 'Loading ')}${esc(src.name)}…</div>`) + '</div>';
     return;
   }
   if (!S.cat && !S.q.trim() && wide()) {
     S.cat = src.type === 'free' ? 'free:EG' : (recentOf(S).length ? 'recent' : 'all');
     if (isFreeCat(S.cat)) { loadFree(S, S.cat); return; }
   }
-  v.innerHTML = head + `<div class="split" data-pane="${S.pane}">
+  v.innerHTML = `<div class="lwrap">${head}<div class="split" data-pane="${S.pane}">
     <aside class="side"><input class="in" id="q" type="search" placeholder="🔍 ${L('بحث في الكل…', 'Search all…')}" value="${esc(S.q)}"><div id="cats">${catsHtml(S, src)}</div></aside>
-    <section class="main"><div class="mhead"><button class="btn sm backc" data-act="cats">${lang === 'ar' ? '→' : '←'} ${L('القوائم', 'Lists')}</button><b id="mtitle"></b><span class="sp" style="flex:1"></span><span id="cnt" class="cnt"></span></div><div id="grid"></div></section></div>`;
+    <section class="main"><div class="mhead"><button class="btn sm backc" data-act="cats">${lang === 'ar' ? '→' : '←'} ${L('القوائم', 'Lists')}</button><b id="mtitle"></b>${src.type === 'free' ? `<span class="fbadge">${L('مجاني', 'FREE')}</span>` : ''}<span style="flex:1"></span><span id="cnt" class="cnt"></span></div><div id="gchips" class="chips"></div><div id="grid"></div></section></div></div>`;
   paintMain(S);
+  const sc = $('#cats .cat.on'); if (sc) sc.scrollIntoView({ block: 'nearest' });
   const q = $('#q');
   q.addEventListener('input', () => {
     clearTimeout(q._t); q._t = setTimeout(() => {
@@ -447,7 +485,26 @@ function playerUI() {
   const r = $('#pl-rng');
   r.addEventListener('input', () => { const v = vid(); if (isFinite(v.duration)) v.currentTime = v.duration * r.value / 1000; });
 }
+let NP = null;
+const nativeAvail = () => isNative() && window.Capacitor && typeof Capacitor.registerPlugin === 'function' && (!Capacitor.isPluginAvailable || Capacitor.isPluginAvailable('TamyPlayer'));
 function openPlayer(item, list) {
+  if (nativeAvail() && U.settings.engine !== 'web' && U.settings.engine !== 'hls' && !/^ytc?:/.test(item.url)) return openNative(item, list);
+  openWeb(item, list);
+}
+async function openNative(item, list) {
+  stopRadio();
+  const arr = (list && list.length ? list : [item]); let idx = Math.max(0, arr.findIndex(x => x.id === item.id));
+  const lo = Math.max(0, idx - 400), win = arr.slice(lo, Math.min(arr.length, idx + 600)); idx -= lo;
+  const live = item.kind === 'live'; saveRecent(item);
+  try {
+    NP = NP || Capacitor.registerPlugin('TamyPlayer');
+    const pos = (!live && U.pos[item.id]) ? U.pos[item.id] * 1000 : 0;
+    const r = await NP.play({ urls: win.map(x => x.url), titles: win.map(x => x.name), index: idx, live, pos, ua: 'VLC/3.0.20 LibVLC/3.0.20' });
+    const last = r && typeof r.index === 'number' ? win[r.index] : null;
+    if (last) { saveRecent(last); if (!live && r.pos > 0) { if (r.dur && r.pos > r.dur - 60000) delete U.pos[last.id]; else U.pos[last.id] = Math.floor(r.pos / 1000); saveU(); } }
+  } catch (e) { toast(L('تعذّر المشغّل الأصلي، جارٍ استخدام المشغّل العادي', 'Native player failed, using web player')); openWeb(item, list); }
+}
+function openWeb(item, list) {
   if (!P.open) history.pushState({ o: 1 }, '');
   stopRadio();
   P.open = true; P.list = (list && list.length ? list : [item]); P.idx = Math.max(0, P.list.findIndex(x => x.id === item.id));
@@ -455,7 +512,7 @@ function openPlayer(item, list) {
 }
 function bindVideo() {
   const v = vid(); if (v._b) return; v._b = true;
-  v.addEventListener('playing', () => { clearTimeout(P.wd); P.playing = true; $('#pl-spin').classList.add('hidden'); $('#pl-err').classList.add('hidden'); setPlayIcon(); });
+  v.addEventListener('playing', () => { clearTimeout(P.wd); P.playing = true; clearTimeout(P.vchk); P.vchk = setTimeout(() => { if (P.open && !v.paused && v.videoWidth === 0) { P.dbg.push('no-video-track'); toast(L('الصوت يعمل لكن الفيديو غير مدعوم في هذا المشغّل (غالباً H.265)', 'Audio plays but video is unsupported here (likely H.265)')); } }, 5000); $('#pl-spin').classList.add('hidden'); $('#pl-err').classList.add('hidden'); setPlayIcon(); });
   v.addEventListener('waiting', () => { $('#pl-spin').classList.remove('hidden'); if (P.playing && P.item && P.item.kind === 'live') armWatch(20000); });
   v.addEventListener('pause', setPlayIcon); v.addEventListener('play', setPlayIcon);
   v.addEventListener('error', () => { P.dbg.push('video error ' + (v.error ? v.error.code : '?')); nextStage(); });
@@ -510,7 +567,7 @@ function startPlay(item) {
   $('#pl-seek').style.display = item.kind === 'live' ? 'none' : 'flex';
   $('#pl-spin').classList.remove('hidden'); $('#pl-err').classList.add('hidden');
   saveRecent(item); showCtl();
-  if (/^yt:/.test(url)) { v.classList.add('hidden'); const f = $('#yt'); f.classList.remove('hidden'); f.src = 'https://www.youtube.com/embed/' + url.slice(3) + '?autoplay=1'; $('#pl-spin').classList.add('hidden'); return; }
+  if (/^ytc?:/.test(url)) { v.classList.add('hidden'); const f = $('#yt'); f.classList.remove('hidden'); f.src = url.startsWith('ytc:') ? 'https://www.youtube.com/embed/live_stream?channel=' + url.slice(4) + '&autoplay=1' : 'https://www.youtube.com/embed/' + url.slice(3) + '?autoplay=1'; $('#pl-spin').classList.add('hidden'); return; }
   const eng = U.settings.engine, isHls = /\.m3u8(\?|$)/i.test(url) || (item.kind === 'live' && !/\.(mp4|mkv|ts|avi|flv)(\?|$)/i.test(url));
   const st = [];
   if (isHls && eng !== 'native' && window.Hls && Hls.isSupported()) st.push('hls');
@@ -671,7 +728,7 @@ function tick() {
     }
   }
 }
-setInterval(() => { if (uid) tick(); }, 1000);
+setInterval(() => { if (uid) { tick(); tickHdr(); } }, 1000);
 function playAdhan(k) {
   toast('🕌 ' + L('حان الآن موعد صلاة ', 'It is time for ') + PRAYERS.find(p => p[0] === k)[lang === 'ar' ? 1 : 2]);
   if (U.settings.adhanUrl) { const a = new Audio(U.settings.adhanUrl); a.play().catch(() => chime()); return; }
@@ -707,8 +764,8 @@ function vSettings(v) {
   <div class="set"><h3>🎨 ${L('الثيمات', 'Themes')}</h3><div class="themes">${THEMES.map(t => `<button class="th ${s.theme === t[0] ? 'on' : ''}" data-act="theme" data-t="${t[0]}">${t[lang === 'ar' ? 1 : 2]}</button>`).join('')}</div></div>
   <div class="set"><h3>⚙ ${L('عام', 'General')}</h3>
     <div class="row"><div><b>${L('اللغة', 'Language')}</b></div><button class="btn sm" data-act="lang">${lang === 'ar' ? 'English' : 'العربية'}</button></div>
-    <div class="row"><div><b>${L('محرك التشغيل', 'Player engine')}</b><small>${L('تلقائي = hls.js ثم المشغّل الأصلي', 'Auto = hls.js then native')}</small></div>
-      <select class="in" data-act="engine"><option value="auto" ${s.engine === 'auto' ? 'selected' : ''}>${L('تلقائي', 'Auto')}</option><option value="hls" ${s.engine === 'hls' ? 'selected' : ''}>hls.js</option><option value="native" ${s.engine === 'native' ? 'selected' : ''}>${L('أصلي', 'Native')}</option></select></div>
+    <div class="row"><div><b>${L('محرك التشغيل', 'Player engine')}</b><small>${L('الأصلي يدعم H.265 ومعظم السيرفرات', 'Native supports H.265 and most servers')}</small></div>
+      <select class="in" data-act="engine"><option value="auto" ${s.engine === 'auto' ? 'selected' : ''}>${L('تلقائي (الأصلي ExoPlayer إن وُجد)', 'Auto (native ExoPlayer if available)')}</option><option value="web" ${s.engine === 'web' ? 'selected' : ''}>${L('مشغّل الويب فقط', 'Web player only')}</option><option value="hls" ${s.engine === 'hls' ? 'selected' : ''}>hls.js</option><option value="native" ${s.engine === 'native' ? 'selected' : ''}>${L('أصلي', 'Native')}</option></select></div>
     <div class="row"><div><b>${L('تنبيه الأذان', 'Adhan alert')}</b><small>${L('أثناء فتح التطبيق', 'While the app is open')}</small></div><button class="sw ${s.adhan ? 'on' : ''}" data-act="adhan" aria-label="adhan"></button></div>
     <div class="row"><div style="flex:1"><b>${L('رابط صوت الأذان (اختياري)', 'Custom adhan audio URL (optional)')}</b><input class="in" style="width:100%;margin-top:6px" id="adhanUrl" placeholder="https://…mp3" value="${esc(s.adhanUrl)}"></div></div></div>
   <div class="set"><h3>💾 ${L('نسخة احتياطية', 'Backup')}</h3><div class="acts" style="justify-content:flex-start"><button class="btn" data-act="export">${L('تصدير', 'Export')}</button><button class="btn" data-act="import">${L('استيراد', 'Import')}</button><button class="btn dng" data-act="wipe">${L('مسح بيانات الحساب', 'Clear account data')}</button></div>
@@ -792,6 +849,8 @@ const A = {
     e.stopPropagation(); const i = curList[+el.dataset.i]; if (!i) return; const on = toggleFav(i);
     el.textContent = on ? '★' : '☆'; el.classList.toggle('on', on); if (screen === 'favs' && !on) { render(); } else if (stateOf() && (stateOf().cat === 'favs')) { paintMain(stateOf()); } toast(on ? L('أضيفت للمفضلة', 'Added to favorites') : L('حُذفت من المفضلة', 'Removed'));
   },
+  recents: () => recentsModal(),
+  fgrp: el => { const S = stateOf(); if (S) { S.fg = el.dataset.g; S.shown = 80; paintMain(S); } },
   cat: el => { const S = stateOf(); if (S) selectCat(S, el.dataset.c); },
   cats: () => { const S = stateOf(); if (S && S.pane === 'items' && !wide()) history.back(); },
   more: () => { const S = stateOf(); if (S) { S.shown += 80; paintMain(S); } },
@@ -905,9 +964,13 @@ document.addEventListener('keydown', e => {
 });
 
 /* ───────────── boot ───────────── */
+function startApp() {
+  U.settings.active = 'free'; history.replaceState({ s: 'home' }, ''); history.pushState({ s: 'live' }, ''); screen = 'live'; LV.srcId = null; render();
+}
 function boot() {
   history.replaceState({ s: 'home' }, '');
-  if (uid && users.some(u => u.id === uid)) { loadU(); render(); } else { uid = null; renderAuth(); }
+  if (uid && users.some(u => u.id === uid)) { loadU(); startApp(); } else { uid = null; renderAuth(); }
+  setTimeout(() => { const sp = $('#splash'); if (sp) { sp.classList.add('out'); setTimeout(() => sp.remove(), 600); } }, 900);
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isNative()) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 window.__tamy = { parseM3U, xBase };

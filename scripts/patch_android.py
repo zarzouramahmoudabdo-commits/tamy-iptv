@@ -34,5 +34,9 @@ if "LEANBACK_LAUNCHER" not in s:
 if "orientation" not in s.split("<activity", 1)[1].split(">", 1)[0]:
     s = s.replace("<activity", '<activity\n            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|uiMode"', 1)
 
+# 4) الوضع الأفقي دائماً
+if "screenOrientation" not in s.split("<activity", 1)[1].split(">", 1)[0]:
+    s = s.replace("<activity", '<activity\n            android:screenOrientation="sensorLandscape"', 1)
+
 p.write_text(s, encoding="utf-8")
 print("AndroidManifest.xml patched")
