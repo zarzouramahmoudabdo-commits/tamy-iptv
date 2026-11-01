@@ -11,6 +11,7 @@ if not (pkg / "NativePlayerActivity.java").exists():
 ACT = r'''package com.tamy.iptv;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.PictureInPictureParams;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -27,6 +28,7 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Rational;
 import android.view.Gravity;
+import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -39,13 +41,18 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.media3.common.C;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
+import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.Tracks;
+import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -65,6 +72,7 @@ import java.net.CookieManager;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 
@@ -78,8 +86,8 @@ public class NativePlayerActivity extends Activity {
     // Serializes HTTP requests: many IPTV panels answer 406 when two connections hit one line at once
     // (e.g. playlist reload during a segment download).
     private static final Semaphore LOCK = new Semaphore(1, true);
-    // playlist URL -> the edge server it redirected to (the provider load-balances and some edges answer 406)
-    private static final java.util.concurrent.ConcurrentHashMap<String, String> PIN = new java.util.concurrent.ConcurrentHashMap<>();
+    // any playlist URL we saw -> the original entry URL that produced it (the provider redirects to short-lived edge URLs)
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> ROOT = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static final java.util.ArrayList<String> LOG = new java.util.ArrayList<>();
     private static long T0 = 0;
@@ -101,7 +109,12 @@ public class NativePlayerActivity extends Activity {
     private static String tail(String u) {
         int q = u.indexOf('?');
         String x = q > 0 ? u.substring(0, q) : u;
-        return x.length() > 34 ? "…" + x.substring(x.length() - 34) : x;
+        String host = "";
+        try { host = Uri.parse(u).getHost(); } catch (Exception ignored) {}
+        if (host == null) host = "";
+        int d = host.lastIndexOf('.');
+        if (d > 0 && host.matches("[0-9.]+")) { int d2 = host.lastIndexOf('.', d - 1); if (d2 > 0) host = host.substring(d2 + 1); }
+        return host + " …" + (x.length() > 20 ? x.substring(x.length() - 20) : x);
     }
 
     private static class SerialSource implements DataSource {
@@ -113,26 +126,36 @@ public class NativePlayerActivity extends Activity {
         public long open(DataSpec ds) throws IOException {
             try { LOCK.acquire(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
             held = true;
-            String orig = ds.uri.toString();
-            boolean pl = isPlaylist(orig);
-            String pinned = pl ? PIN.get(orig) : null;
+            String cur = ds.uri.toString();
+            boolean pl = isPlaylist(cur);
             long t0 = SystemClock.elapsedRealtime();
-            String kind = (pl ? "PL " : "SEG ") + tail(pinned != null ? pinned : orig);
+            String kind = (pl ? "PL " : "SEG ") + tail(cur);
             try {
                 long n;
-                if (pinned != null) {
-                    try { n = up.open(ds.withUri(Uri.parse(pinned))); }
-                    catch (IOException e) { log(kind + " ERR " + code(e) + " (unpin)"); PIN.remove(orig); n = up.open(ds); }
-                } else {
+                try {
                     n = up.open(ds);
+                } catch (IOException e) {
+                    String root = pl ? ROOT.get(cur) : null;
+                    if (root == null || root.equals(cur)) throw e;
+                    // the short-lived edge URL was refused: go back through the entry URL to get a fresh one
+                    log(kind + " ERR " + code(e) + " -> entry");
+                    n = up.open(ds.withUri(Uri.parse(root)));
                 }
                 if (pl) {
                     Uri fin = up.getUri();
-                    if (fin != null && !fin.toString().equals(orig)) PIN.put(orig, fin.toString());
+                    String root = ROOT.get(cur);
+                    if (root == null) root = cur;
+                    ROOT.put(cur, root);
+                    if (fin != null) ROOT.put(fin.toString(), root);
                 }
                 log(kind + " ok " + (SystemClock.elapsedRealtime() - t0) + "ms");
                 return n;
             } catch (IOException | RuntimeException e) { log(kind + " ERR " + code(e)); release(); throw e; }
+        }
+        private static boolean isPlaylist(String u) {
+            int q = u.indexOf('?');
+            String path = q > 0 ? u.substring(0, q) : u;
+            return path.endsWith(".m3u8");
         }
         private static String code(Exception e) {
             if (e instanceof HttpDataSource.InvalidResponseCodeException) return String.valueOf(((HttpDataSource.InvalidResponseCodeException) e).responseCode);
@@ -179,6 +202,14 @@ public class NativePlayerActivity extends Activity {
     private FrameLayout topBar, botBar;
     private TextView titleTv, infoTv, playBtn, muteBtn, dbgTv;
     private boolean dbgOn = false;
+    private SeekBar seek;
+    private TextView curT, durT, rewBtn, fwdBtn, speedBtn;
+    private LinearLayout seekRow;
+    private boolean dragging = false;
+    private final float[] SPEEDS = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+    private int speedIdx = 2;
+    private GestureDetector gd;
+    private Runnable sleepRun = null;
     private DefaultHttpDataSource.Factory httpf;
     private DataSource.Factory serial;
     private FrameLayout stageFrame;
@@ -364,13 +395,22 @@ public class NativePlayerActivity extends Activity {
         mid.setOrientation(LinearLayout.HORIZONTAL);
         mid.setGravity(Gravity.CENTER);
         TextView prev = btn("⏮", new View.OnClickListener() { @Override public void onClick(View v) { zap(-1); } });
+        rewBtn = btn("−10", new View.OnClickListener() { @Override public void onClick(View v) { seekBy(-10000); } });
+        rewBtn.setTextSize(15);
+        fwdBtn = btn("+10", new View.OnClickListener() { @Override public void onClick(View v) { seekBy(10000); } });
+        fwdBtn.setTextSize(15);
         playBtn = btn("⏸", new View.OnClickListener() { @Override public void onClick(View v) { togglePlay(); } });
         TextView next = btn("⏭", new View.OnClickListener() { @Override public void onClick(View v) { zap(1); } });
-        mid.addView(prev, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout.LayoutParams sm = new LinearLayout.LayoutParams(dp(52), dp(52));
+        sm.setMargins(dp(6), 0, dp(6), 0);
+        mid.addView(prev, sm);
+        mid.addView(rewBtn, sm);
         LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(dp(60), dp(60));
-        pl.setMargins(dp(14), 0, dp(14), 0);
+        pl.setMargins(dp(10), 0, dp(10), 0);
         mid.addView(playBtn, pl);
-        mid.addView(next, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        mid.addView(fwdBtn, sm);
+        mid.addView(next, sm);
+        if (live) { rewBtn.setVisibility(View.GONE); fwdBtn.setVisibility(View.GONE); }
         addTo(botBar, mid, -2, -2, Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM, 0, 0);
 
         LinearLayout left = new LinearLayout(this);
@@ -384,6 +424,55 @@ public class NativePlayerActivity extends Activity {
         left.addView(add, al);
         left.addView(rem, al);
         addTo(botBar, left, -2, -2, Gravity.LEFT | Gravity.BOTTOM, 0, 0);
+
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(LinearLayout.HORIZONTAL);
+        speedBtn = btn("1x", new View.OnClickListener() { @Override public void onClick(View v) { cycleSpeed(); } });
+        speedBtn.setTextSize(14);
+        TextView trk = btn("⚙", new View.OnClickListener() { @Override public void onClick(View v) { showTracks(); } });
+        TextView slp = btn("⏲", new View.OnClickListener() { @Override public void onClick(View v) { sleepDialog(); } });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(dp(48), dp(48));
+        rl.setMargins(dp(8), 0, 0, 0);
+        right.addView(speedBtn, rl);
+        right.addView(trk, rl);
+        right.addView(slp, rl);
+        addTo(botBar, right, -2, -2, Gravity.RIGHT | Gravity.BOTTOM, 0, 0);
+        if (live) speedBtn.setVisibility(View.GONE);
+
+        seekRow = new LinearLayout(this);
+        seekRow.setOrientation(LinearLayout.HORIZONTAL);
+        seekRow.setGravity(Gravity.CENTER_VERTICAL);
+        curT = new TextView(this); curT.setTextColor(Color.WHITE); curT.setTextSize(12); curT.setText("0:00");
+        durT = new TextView(this); durT.setTextColor(Color.WHITE); durT.setTextSize(12); durT.setText("--:--");
+        seek = new SeekBar(this);
+        seek.setMax(1000);
+        try { seek.getProgressDrawable().setTint(ACCENT); seek.getThumb().setTint(Color.WHITE); } catch (Exception ignored) {}
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int prog, boolean fromUser) { if (fromUser) curT.setText(fmt(prog * 1000L)); }
+            @Override public void onStartTrackingTouch(SeekBar sb) { dragging = true; hd.removeCallbacks(hideCtl); }
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                dragging = false;
+                if (!slots.isEmpty()) slots.get(sel).p.seekTo(sb.getProgress() * 1000L);
+                scheduleHide();
+            }
+        });
+        seekRow.addView(curT, new LinearLayout.LayoutParams(-2, -2));
+        seekRow.addView(seek, new LinearLayout.LayoutParams(0, -2, 1f));
+        seekRow.addView(durT, new LinearLayout.LayoutParams(-2, -2));
+        FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        sl.setMargins(dp(8), 0, dp(8), dp(66));
+        botBar.addView(seekRow, sl);
+        if (live) seekRow.setVisibility(View.GONE);
+
+        gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                if (live || slots.isEmpty() || listOpen) return false;
+                float w = root.getWidth(), x = e.getX();
+                if (x < w * 0.4f) seekBy(-10000); else if (x > w * 0.6f) seekBy(10000); else togglePlay();
+                return true;
+            }
+        });
 
         infoTv = new TextView(this);
         infoTv.setTextColor(Color.parseColor("#FFE0E0FF"));
@@ -477,6 +566,10 @@ public class NativePlayerActivity extends Activity {
             @Override
             public void onPlaybackStateChanged(int st) {
                 long now = SystemClock.elapsedRealtime();
+                if (st == Player.STATE_ENDED && !live) {
+                    if (URLS.length > 1 && slots.size() == 1 && s.idx < URLS.length - 1) zap(1); else finish();
+                    return;
+                }
                 if (st == Player.STATE_READY) { if (s.readySince == 0) s.readySince = now; s.bufSince = 0; hideInfo(); }
                 else if (st == Player.STATE_BUFFERING) { if (s.bufSince == 0) s.bufSince = now; }
                 updatePlayIcon();
@@ -558,6 +651,7 @@ public class NativePlayerActivity extends Activity {
                 if (st == Player.STATE_BUFFERING && s.bufSince > 0 && now - s.bufSince > 12000 && now - s.lastRefresh > 8000) refresh(s);
             }
             if (dbgOn && dbgTv != null) dbgTv.setText(dump());
+            tickSeek();
             hd.postDelayed(this, 1000);
         }
     };
@@ -743,6 +837,99 @@ public class NativePlayerActivity extends Activity {
         else { showControls(); }
     }
 
+    // ───────────── VOD controls ─────────────
+    private String fmt(long ms) {
+        long t = Math.max(0, ms) / 1000;
+        long h = t / 3600, m = (t % 3600) / 60, sc = t % 60;
+        return h > 0 ? String.format(Locale.US, "%d:%02d:%02d", h, m, sc) : String.format(Locale.US, "%d:%02d", m, sc);
+    }
+
+    private void seekBy(long d) {
+        if (slots.isEmpty() || live) return;
+        ExoPlayer p = slots.get(sel).p;
+        long dur = p.getDuration();
+        long to = p.getCurrentPosition() + d;
+        if (to < 0) to = 0;
+        if (dur != C.TIME_UNSET && to > dur - 1000) to = Math.max(0, dur - 1000);
+        p.seekTo(to);
+        showInfo((d < 0 ? "⏪ " : "⏩ ") + fmt(to));
+        hd.postDelayed(new Runnable() { @Override public void run() { hideInfo(); } }, 900);
+        showControls();
+    }
+
+    private void tickSeek() {
+        if (live || slots.isEmpty() || sel >= slots.size() || seek == null || dragging) return;
+        ExoPlayer p = slots.get(sel).p;
+        long dur = p.getDuration();
+        if (dur == C.TIME_UNSET || dur <= 0) return;
+        seek.setMax((int) (dur / 1000));
+        seek.setProgress((int) (p.getCurrentPosition() / 1000));
+        seek.setSecondaryProgress((int) (p.getBufferedPosition() / 1000));
+        curT.setText(fmt(p.getCurrentPosition()));
+        durT.setText(fmt(dur));
+    }
+
+    private void cycleSpeed() {
+        if (slots.isEmpty()) return;
+        speedIdx = (speedIdx + 1) % SPEEDS.length;
+        float sp = SPEEDS[speedIdx];
+        slots.get(sel).p.setPlaybackParameters(new PlaybackParameters(sp));
+        speedBtn.setText((sp == (int) sp ? String.valueOf((int) sp) : String.valueOf(sp)) + "x");
+        showControls();
+    }
+
+    private void showTracks() {
+        if (slots.isEmpty()) return;
+        final ExoPlayer p = slots.get(sel).p;
+        final List<String> names = new ArrayList<>();
+        final List<Runnable> acts = new ArrayList<>();
+        Tracks tr = p.getCurrentTracks();
+        for (final Tracks.Group g : tr.getGroups()) {
+            if (g.getType() != C.TRACK_TYPE_AUDIO && g.getType() != C.TRACK_TYPE_TEXT) continue;
+            final boolean audio = g.getType() == C.TRACK_TYPE_AUDIO;
+            for (int i = 0; i < g.length; i++) {
+                final int ti = i;
+                Format f = g.getTrackFormat(i);
+                String nm = f.label != null ? f.label : (f.language != null ? f.language : "#" + (i + 1));
+                names.add((audio ? "🔊 " : "💬 ") + nm + (g.isTrackSelected(i) ? "  ✓" : ""));
+                acts.add(new Runnable() {
+                    @Override public void run() {
+                        p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
+                                .setTrackTypeDisabled(g.getType(), false)
+                                .setOverrideForType(new TrackSelectionOverride(g.getMediaTrackGroup(), ti)).build());
+                    }
+                });
+            }
+        }
+        names.add("💬 إيقاف الترجمة");
+        acts.add(new Runnable() {
+            @Override public void run() {
+                p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());
+            }
+        });
+        new AlertDialog.Builder(this).setTitle("الصوت والترجمة")
+                .setItems(names.toArray(new CharSequence[0]), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) { acts.get(which).run(); }
+                }).show();
+    }
+
+    private void sleepDialog() {
+        final int[] mins = {0, 15, 30, 45, 60, 90};
+        CharSequence[] labels = {"إيقاف المؤقت", "15 دقيقة", "30 دقيقة", "45 دقيقة", "ساعة", "ساعة ونصف"};
+        new AlertDialog.Builder(this).setTitle("⏲ مؤقت النوم")
+                .setItems(labels, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) {
+                        if (sleepRun != null) { hd.removeCallbacks(sleepRun); sleepRun = null; }
+                        if (mins[which] > 0) {
+                            sleepRun = new Runnable() { @Override public void run() { finish(); } };
+                            hd.postDelayed(sleepRun, mins[which] * 60000L);
+                            showInfo("⏲ سيُغلق البث بعد " + mins[which] + " دقيقة");
+                            hd.postDelayed(new Runnable() { @Override public void run() { hideInfo(); } }, 2000);
+                        } else showInfo("تم إيقاف المؤقت");
+                    }
+                }).show();
+    }
+
     // ───────────── controls visibility ─────────────
     private final Runnable hideCtl = new Runnable() {
         @Override
@@ -773,6 +960,7 @@ public class NativePlayerActivity extends Activity {
     // ───────────── input ─────────────
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
+        if (gd != null) gd.onTouchEvent(e);
         if (e.getAction() == MotionEvent.ACTION_DOWN) { downX = e.getX(); downY = e.getY(); }
         else if (e.getAction() == MotionEvent.ACTION_UP && !listOpen && live) {
             float dy = e.getY() - downY, dx = e.getX() - downX;

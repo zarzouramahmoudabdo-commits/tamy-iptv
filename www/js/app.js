@@ -219,21 +219,39 @@ function closeModalSilent() { const m = $('#modal'); m.classList.add('hidden'); 
 
 /* ───────────── auth ───────────── */
 let authMode = 'in';
+let selAcc = LS.get('tamy:last', null);
 function renderAuth() {
   $('#topbar').innerHTML = ''; $('#view').classList.remove('fix');
+  const real = users.filter(u => !u.guest);
+  if (!real.length) authMode = 'up';
+  if (!real.some(u => u.id === selAcc)) selAcc = real.length ? real[0].id : null;
+  const up = authMode === 'up', pw = (id, ph, ac) => `<div class="pw"><input class="in" id="${id}" type="password" placeholder="${ph}" autocomplete="${ac}"><button type="button" class="eye" data-act="eye" aria-label="show">👁</button></div>`;
   $('#view').innerHTML = `<div class="auth"><img src="icons/icon-512.png" alt="">
     <h1>TAMY IPTV</h1><p>${L('تلفزيونك. عالمك.', 'Your TV. Your world.')}</p>
-    ${users.length && authMode === 'in' ? `<select class="in" id="a-user">${users.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>` : ''}
-    ${authMode === 'up' ? `<input class="in" id="a-name" placeholder="${L('الاسم', 'Name')}" autocomplete="username">` : ''}
-    <input class="in" id="a-pass" type="password" placeholder="${L('كلمة المرور', 'Password')}" autocomplete="current-password">
-    ${authMode === 'in' && users.length ? `<button class="btn pri" data-act="login">${L('تسجيل الدخول', 'Sign in')}</button>` : ''}
-    ${authMode === 'up' || !users.length ? `<button class="btn pri" data-act="signup">${L('إنشاء حساب', 'Create account')}</button>` : ''}
-    <button class="btn" data-act="authmode">${authMode === 'in' && users.length ? L('حساب جديد', 'New account') : users.length ? L('لدي حساب', 'I have an account') : ''}</button>
+    <div class="seg atabs">${real.length ? `<button class="sg ${!up ? 'on' : ''}" data-act="authmode" data-m="in">${L('تسجيل الدخول', 'Sign in')}</button>` : ''}<button class="sg ${up ? 'on' : ''}" data-act="authmode" data-m="up">${L('حساب جديد', 'New account')}</button></div>
+    ${!up ? `<div class="accs">${real.map(u => `<button class="acc ${u.id === selAcc ? 'on' : ''}" data-act="pickacc" data-id="${esc(u.id)}"><span class="av">${esc((u.name || '?')[0].toUpperCase())}</span><b>${esc(u.name)}</b></button>`).join('')}</div>` : `<input class="in" id="a-name" placeholder="${L('اسم المستخدم', 'Username')}" autocomplete="username" autocapitalize="off" maxlength="24">`}
+    ${pw('a-pass', L('كلمة المرور', 'Password'), up ? 'new-password' : 'current-password')}
+    ${up ? `${pw('a-pass2', L('تأكيد كلمة المرور', 'Confirm password'), 'new-password')}<div class="meter"><i id="a-meter"></i></div><small class="mt" id="a-mt">${L('4 أحرف على الأقل', 'At least 4 characters')}</small>` : ''}
+    <div class="err" id="a-err" role="alert"></div>
+    <button class="btn pri" data-act="${up ? 'signup' : 'login'}">${up ? L('إنشاء حساب', 'Create account') : L('دخول', 'Sign in')}</button>
+    ${!up ? `<button class="lnk" data-act="forgot">${L('نسيت كلمة المرور؟', 'Forgot password?')}</button>` : ''}
+    <div class="or"><span>${L('أو', 'or')}</span></div>
     <button class="btn" data-act="guest">${L('متابعة كضيف', 'Continue as guest')}</button>
-    <p class="note">${L('الحسابات محفوظة على جهازك فقط.', 'Accounts are stored on this device only.')}</p>
+    <p class="note">${L('الحسابات محفوظة على جهازك فقط، ولا تُرسل لأي سيرفر.', 'Accounts are stored on this device only and never sent to any server.')}</p>
     <button class="chip" data-act="lang">${lang === 'ar' ? 'English' : 'العربية'}</button></div>`;
+  const pi = $('#a-pass'); if (up && pi) pi.addEventListener('input', () => strength(pi.value));
 }
-async function enter(id) { uid = id; LS.set('tamy:uid', id); loadU(); startApp(); }
+function strength(v) {
+  let sc = 0; if (v.length >= 4) sc++; if (v.length >= 8) sc++; if (/[A-Za-z]/.test(v) && /\d/.test(v)) sc++; if (/[^A-Za-z0-9]/.test(v) || v.length >= 12) sc++;
+  const m = $('#a-meter'), t = $('#a-mt'); if (!m) return;
+  m.style.width = (v ? sc * 25 : 0) + '%'; m.style.background = ['#e5484d', '#e5484d', '#f5a524', '#46a758', '#2fbf71'][sc];
+  t.textContent = !v ? L('4 أحرف على الأقل', 'At least 4 characters') : [L('ضعيفة جداً', 'Very weak'), L('ضعيفة', 'Weak'), L('متوسطة', 'Fair'), L('جيدة', 'Good'), L('قوية', 'Strong')][sc];
+}
+function authErr(m, id) {
+  const e = $('#a-err'); if (e) { e.textContent = m; e.classList.remove('shake'); void e.offsetWidth; e.classList.add('shake'); }
+  const f = id && $('#' + id); if (f) { f.classList.add('bad'); f.focus(); setTimeout(() => f.classList.remove('bad'), 1200); }
+}
+async function enter(id) { uid = id; LS.set('tamy:uid', id); LS.set('tamy:last', id); selAcc = id; authMode = 'in'; loadU(); startApp(); }
 
 /* ───────────── home ───────────── */
 function vHome(v) {
@@ -764,7 +782,7 @@ function srcRowsUnused() {
 function vSettings(v) {
   const s = U.settings, me = users.find(u => u.id === uid);
   v.innerHTML = `
-  <div class="set"><h3>👤 ${L('الحساب', 'Account')}</h3><div class="row"><div><b>${esc(me ? me.name : L('ضيف', 'Guest'))}</b><small>${L('البيانات محفوظة على هذا الجهاز', 'Data is stored on this device')}</small></div><button class="btn sm" data-act="logout">${L('تبديل الحساب', 'Switch account')}</button></div></div>
+  <div class="set"><h3>👤 ${L('الحساب', 'Account')}</h3><div class="row"><div><b>${esc(me ? me.name : L('ضيف', 'Guest'))}</b><small>${L('البيانات محفوظة على هذا الجهاز', 'Data is stored on this device')}</small></div><div class="acts" style="margin:0"><button class="btn sm" data-act="acct">${me && me.guest ? L('حوّل لحساب', 'Make account') : L('إدارة', 'Manage')}</button><button class="btn sm" data-act="logout">${L('تبديل الحساب', 'Switch account')}</button></div></div></div>
   <div class="set"><h3>📡 ${L('اشتراكاتي', 'My subscriptions')}</h3><div class="row"><div><b>${esc(activeSrc().name)}</b><small>${L('الاشتراك النشط · ', 'Active · ')}${U.sources.length} ${L('اشتراك مضاف', 'added')}</small></div><button class="btn sm pri" data-act="go" data-to="subs">${L('إدارة الاشتراكات', 'Manage')}</button></div></div>
   <div class="set"><h3>🎨 ${L('الثيمات', 'Themes')}</h3><div class="themes">${THEMES.map(t => `<button class="th ${s.theme === t[0] ? 'on' : ''}" data-act="theme" data-t="${t[0]}">${t[lang === 'ar' ? 1 : 2]}</button>`).join('')}</div></div>
   <div class="set"><h3>⚙ ${L('عام', 'General')}</h3>
@@ -912,19 +930,61 @@ const A = {
   ua: el => { U.settings.ua = el.value; saveU(); toast('✓ ' + el.value); },
   engine: el => { U.settings.engine = el.value; saveU(); },
   /* auth */
-  authmode: () => { authMode = authMode === 'in' ? 'up' : 'in'; renderAuth(); },
+  authmode: el => { authMode = (el && el.dataset && el.dataset.m) || (authMode === 'in' ? 'up' : 'in'); renderAuth(); },
+  pickacc: el => { selAcc = el.dataset.id; renderAuth(); const p = $('#a-pass'); if (p) p.focus(); },
+  eye: el => { const i = el.previousElementSibling; if (!i) return; const show = i.type === 'password'; i.type = show ? 'text' : 'password'; el.style.opacity = show ? 1 : .6; },
   guest: async () => { let g = users.find(u => u.guest); if (!g) { g = { id: uidGen(), name: L('ضيف', 'Guest'), guest: true }; users.push(g); LS.set('tamy:users', users); } enter(g.id); },
   signup: async () => {
-    const name = ($('#a-name') ? $('#a-name').value : '').trim() || ($('#a-name') ? '' : 'TAMY'), pass = $('#a-pass').value;
-    if (!name) return toast(L('اكتب اسمك', 'Enter a name')); if (pass.length < 4) return toast(L('كلمة المرور 4 أحرف على الأقل', 'Password must be 4+ characters'));
-    if (users.some(u => u.name.toLowerCase() === name.toLowerCase())) return toast(L('الاسم مستخدم', 'Name already used'));
+    const name = ($('#a-name') ? $('#a-name').value : '').trim(), pass = $('#a-pass').value, p2 = $('#a-pass2') ? $('#a-pass2').value : pass;
+    if (name.length < 2) return authErr(L('اكتب اسم المستخدم (حرفان على الأقل)', 'Enter a username (2+ chars)'), 'a-name');
+    if (pass.length < 4) return authErr(L('كلمة المرور 4 أحرف على الأقل', 'Password must be 4+ characters'), 'a-pass');
+    if (pass !== p2) return authErr(L('كلمتا المرور غير متطابقتين', 'Passwords do not match'), 'a-pass2');
+    if (users.some(u => !u.guest && u.name.toLowerCase() === name.toLowerCase())) return authErr(L('هذا الاسم مستخدم بالفعل', 'This name is already taken'), 'a-name');
     const u = { id: uidGen(), name, hash: await sha(name.toLowerCase() + ':' + pass) }; users.push(u); LS.set('tamy:users', users); enter(u.id);
   },
   login: async () => {
-    const id = $('#a-user').value, u = users.find(x => x.id === id), pass = $('#a-pass').value;
-    if (!u) return; if (u.guest) return enter(u.id);
-    if ((await sha(u.name.toLowerCase() + ':' + pass)) !== u.hash) return toast(L('كلمة المرور غير صحيحة', 'Wrong password')); enter(u.id);
-  }
+    const u = users.find(x => x.id === selAcc), pass = $('#a-pass').value;
+    if (!u) return authErr(L('اختر حساباً', 'Choose an account'));
+    if (!pass) return authErr(L('اكتب كلمة المرور', 'Enter your password'), 'a-pass');
+    if ((await sha(u.name.toLowerCase() + ':' + pass)) !== u.hash) { $('#a-pass').value = ''; return authErr(L('كلمة المرور غير صحيحة', 'Wrong password'), 'a-pass'); }
+    enter(u.id);
+  },
+  forgot: () => {
+    const u = users.find(x => x.id === selAcc); if (!u) return;
+    modal(`<h3>${L('إعادة تعيين كلمة المرور', 'Reset password')}</h3><p style="color:var(--mut);margin:0 0 10px">${L('الحساب', 'Account')}: <b>${esc(u.name)}</b><br>${L('الحسابات محلية على هذا الجهاز فقط، لذلك تقدر تختار كلمة جديدة. بيانات الحساب (الاشتراكات والمفضلة) هتفضل زي ما هي.', 'Accounts are local to this device, so you can set a new password. Your data stays intact.')}</p>
+      <label class="fld"><span>${L('كلمة المرور الجديدة', 'New password')}</span><input class="in" id="f-p1" type="password" autocomplete="new-password"></label>
+      <label class="fld"><span>${L('تأكيد', 'Confirm')}</span><input class="in" id="f-p2" type="password" autocomplete="new-password"></label>
+      <div class="err" id="f-err"></div>
+      <div class="acts"><button class="btn" data-act="mclose">${L('إلغاء', 'Cancel')}</button><button class="btn pri" data-act="forgotsave">${L('حفظ', 'Save')}</button></div>`);
+  },
+  forgotsave: async () => {
+    const u = users.find(x => x.id === selAcc), p1 = $('#f-p1').value, p2 = $('#f-p2').value, e = $('#f-err');
+    if (p1.length < 4) { e.textContent = L('4 أحرف على الأقل', '4+ characters'); return; } if (p1 !== p2) { e.textContent = L('غير متطابقتين', 'Do not match'); return; }
+    u.hash = await sha(u.name.toLowerCase() + ':' + p1); LS.set('tamy:users', users); closeModal(); toast(L('تم تغيير كلمة المرور ✓', 'Password changed ✓'));
+  },
+  /* account management (settings) */
+  acct: () => {
+    const me = users.find(u => u.id === uid); if (!me) return;
+    modal(`<h3>${L('إدارة الحساب', 'Manage account')}</h3>
+      <label class="fld"><span>${L('الاسم', 'Name')}</span><input class="in" id="m-name" value="${esc(me.guest ? '' : me.name)}" placeholder="${me.guest ? L('اختر اسماً لتحويل الضيف لحساب', 'Pick a name to turn this guest into an account') : ''}" maxlength="24"></label>
+      ${me.guest ? '' : `<label class="fld"><span>${L('كلمة المرور الحالية', 'Current password')}</span><input class="in" id="m-old" type="password" autocomplete="current-password"></label>`}
+      <label class="fld"><span>${me.guest ? L('كلمة المرور', 'Password') : L('كلمة مرور جديدة (اختياري)', 'New password (optional)')}</span><input class="in" id="m-new" type="password" autocomplete="new-password"></label>
+      <div class="err" id="m-err"></div>
+      <div class="acts"><button class="btn dng" data-act="acctdel">${L('حذف الحساب', 'Delete account')}</button><button class="btn" data-act="mclose">${L('إلغاء', 'Cancel')}</button><button class="btn pri" data-act="acctsave">${L('حفظ', 'Save')}</button></div>`);
+  },
+  acctsave: async () => {
+    const me = users.find(u => u.id === uid), e = $('#m-err'), name = $('#m-name').value.trim(), np = $('#m-new').value;
+    if (name.length < 2) { e.textContent = L('اكتب اسماً (حرفان على الأقل)', 'Enter a name (2+ chars)'); return; }
+    if (users.some(u => u.id !== me.id && !u.guest && u.name.toLowerCase() === name.toLowerCase())) { e.textContent = L('الاسم مستخدم', 'Name already used'); return; }
+    if (me.guest) { if (np.length < 4) { e.textContent = L('كلمة المرور 4 أحرف على الأقل', 'Password 4+ chars'); return; } delete me.guest; me.name = name; me.hash = await sha(name.toLowerCase() + ':' + np); }
+    else {
+      const old = $('#m-old').value; if ((await sha(me.name.toLowerCase() + ':' + old)) !== me.hash) { e.textContent = L('كلمة المرور الحالية غير صحيحة', 'Current password is wrong'); return; }
+      if (np && np.length < 4) { e.textContent = L('كلمة المرور الجديدة 4 أحرف على الأقل', 'New password 4+ chars'); return; }
+      me.hash = await sha(name.toLowerCase() + ':' + (np || old)); me.name = name;
+    }
+    LS.set('tamy:users', users); closeModal(); toast(L('تم الحفظ ✓', 'Saved ✓')); render();
+  },
+  acctdel: () => { if (!confirm(L('حذف هذا الحساب وكل بياناته نهائياً؟', 'Delete this account and all its data permanently?'))) return; users = users.filter(u => u.id !== uid); LS.set('tamy:users', users); LS.del('tamy:u:' + uid); LS.del('tamy:uid'); uid = null; U = null; closeModalSilent(); stopRadio(); renderAuth(); },
 };
 ['pclose', 'pretry', 'pprev', 'pnext', 'pplay', 'prew', 'pfwd', 'pmute', 'paspect', 'pfs', 'pfav'].forEach(k => A[k] = () => playerAct(k));
 
@@ -1023,6 +1083,12 @@ function startUpdates() {
   setInterval(() => { checkUpdate(false); checkApk(); }, 20 * 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(false); });
 }
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.closest || e.target.tagName !== 'INPUT') return;
+  const box = e.target.closest('.auth,.mbox'); if (!box) return;
+  const b = box.querySelector('.btn.pri'); if (b) { e.preventDefault(); b.click(); }
+}, true);
 
 /* ───────────── boot ───────────── */
 function startApp() {
