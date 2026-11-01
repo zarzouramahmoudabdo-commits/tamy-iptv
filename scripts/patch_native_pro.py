@@ -133,13 +133,13 @@ public class NativePlayerActivity extends Activity {
             try {
                 long n;
                 try {
-                    n = up.open(ds);
+                    n = openRetry(ds, kind);
                 } catch (IOException e) {
                     String root = pl ? ROOT.get(cur) : null;
                     if (root == null || root.equals(cur)) throw e;
                     // the short-lived edge URL was refused: go back through the entry URL to get a fresh one
                     log(kind + " ERR " + code(e) + " -> entry");
-                    n = up.open(ds.withUri(Uri.parse(root)));
+                    n = openRetry(ds.withUri(Uri.parse(root)), kind);
                 }
                 if (pl) {
                     Uri fin = up.getUri();
@@ -151,6 +151,23 @@ public class NativePlayerActivity extends Activity {
                 log(kind + " ok " + (SystemClock.elapsedRealtime() - t0) + "ms");
                 return n;
             } catch (IOException | RuntimeException e) { log(kind + " ERR " + code(e)); release(); throw e; }
+        }
+        private static final long[] BACKOFF = {600, 1200, 2000, 3000, 4000};
+        // provider throttling (429/509/5xx): wait and retry quietly instead of failing the whole load
+        private long openRetry(DataSpec ds, String kind) throws IOException {
+            int tries = 0;
+            while (true) {
+                try {
+                    return up.open(ds);
+                } catch (HttpDataSource.InvalidResponseCodeException e) {
+                    int c = e.responseCode;
+                    boolean soft = c == 429 || c == 509 || c == 503 || c == 502 || c == 500 || c == 504 || c == 520 || c == 521;
+                    if (!soft || tries >= BACKOFF.length) throw e;
+                    log(kind + " " + c + " wait " + BACKOFF[tries] + "ms");
+                    try { Thread.sleep(BACKOFF[tries]); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
+                    tries++;
+                }
+            }
         }
         private static boolean isPlaylist(String u) {
             int q = u.indexOf('?');
@@ -242,7 +259,7 @@ public class NativePlayerActivity extends Activity {
         };
         if (CookieHandler.getDefault() == null) CookieHandler.setDefault(new CookieManager());
         loadControl = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(15000, 40000, 1500, 4000)
+                .setBufferDurationsMs(25000, 60000, 1500, 4000)
                 .build();
 
         buildUi();
@@ -522,7 +539,7 @@ public class NativePlayerActivity extends Activity {
     private MediaItem itemFor(int i) {
         String t = i < TITLES.length ? TITLES[i] : "";
         return new MediaItem.Builder().setUri(URLS[i])
-                .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(8000).setMinOffsetMs(3000).setMaxOffsetMs(40000).build())
+                .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(12000).setMinOffsetMs(3000).setMaxOffsetMs(40000).build())
                 .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build()).build();
     }
 
@@ -531,7 +548,7 @@ public class NativePlayerActivity extends Activity {
         final Slot s = new Slot();
         s.idx = idx;
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(serial)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(2));
+                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(6));
         s.p = new ExoPlayer.Builder(this).setMediaSourceFactory(msf).setLoadControl(loadControl).build();
         s.v = new PlayerView(this);
         s.v.setUseController(false);
