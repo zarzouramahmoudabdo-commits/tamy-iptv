@@ -152,7 +152,7 @@ public class NativePlayerActivity extends Activity {
                 return n;
             } catch (IOException | RuntimeException e) { log(kind + " ERR " + code(e)); release(); throw e; }
         }
-        private static final long[] BACKOFF = {600, 1200, 2000, 3000, 4000};
+        private static final long[] BACKOFF = {400, 900};
         // provider throttling (429/509/5xx): wait and retry quietly instead of failing the whole load
         private long openRetry(DataSpec ds, String kind) throws IOException {
             int tries = 0;
@@ -164,7 +164,10 @@ public class NativePlayerActivity extends Activity {
                     boolean soft = c == 429 || c == 509 || c == 503 || c == 502 || c == 500 || c == 504 || c == 520 || c == 521;
                     if (!soft || tries >= BACKOFF.length) throw e;
                     log(kind + " " + c + " wait " + BACKOFF[tries] + "ms");
-                    try { Thread.sleep(BACKOFF[tries]); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
+                    // let other loads (e.g. the playlist that carries a fresh edge server) go first while we wait
+                    release();
+                    try { Thread.sleep(BACKOFF[tries]); LOCK.acquire(); held = true; }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
                     tries++;
                 }
             }
@@ -548,7 +551,7 @@ public class NativePlayerActivity extends Activity {
         final Slot s = new Slot();
         s.idx = idx;
         DefaultMediaSourceFactory msf = new DefaultMediaSourceFactory(serial)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(6));
+                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(1));
         s.p = new ExoPlayer.Builder(this).setMediaSourceFactory(msf).setLoadControl(loadControl).build();
         s.v = new PlayerView(this);
         s.v.setUseController(false);
@@ -660,7 +663,7 @@ public class NativePlayerActivity extends Activity {
                 int st = s.p.getPlaybackState();
                 long dur = s.p.getDuration();
                 long left = dur == C.TIME_UNSET ? Long.MAX_VALUE : dur - s.p.getCurrentPosition();
-                if (st == Player.STATE_BUFFERING && s.bufSince > 0 && now - s.bufSince > 12000 && now - s.lastRefresh > 8000) refresh(s);
+                if (st == Player.STATE_BUFFERING && s.bufSince > 0 && now - s.bufSince > 8000 && now - s.lastRefresh > 6000) refresh(s);
             }
             if (dbgOn && dbgTv != null) dbgTv.setText(dump());
             tickSeek();
