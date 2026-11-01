@@ -81,6 +81,29 @@ public class NativePlayerActivity extends Activity {
     // playlist URL -> the edge server it redirected to (the provider load-balances and some edges answer 406)
     private static final java.util.concurrent.ConcurrentHashMap<String, String> PIN = new java.util.concurrent.ConcurrentHashMap<>();
 
+    private static final java.util.ArrayList<String> LOG = new java.util.ArrayList<>();
+    private static long T0 = 0;
+
+    private static synchronized void log(String m) {
+        long now = SystemClock.elapsedRealtime();
+        if (T0 == 0) T0 = now;
+        long t = (now - T0) / 1000;
+        LOG.add(String.format("%02d:%02d %s", t / 60, t % 60, m));
+        while (LOG.size() > 16) LOG.remove(0);
+    }
+
+    private static synchronized String dump() {
+        StringBuilder sb = new StringBuilder();
+        for (String l : LOG) sb.append(l).append('\n');
+        return sb.toString();
+    }
+
+    private static String tail(String u) {
+        int q = u.indexOf('?');
+        String x = q > 0 ? u.substring(0, q) : u;
+        return x.length() > 34 ? "…" + x.substring(x.length() - 34) : x;
+    }
+
     private static class SerialSource implements DataSource {
         private final DataSource up;
         private boolean held = false;
@@ -93,11 +116,13 @@ public class NativePlayerActivity extends Activity {
             String orig = ds.uri.toString();
             boolean pl = isPlaylist(orig);
             String pinned = pl ? PIN.get(orig) : null;
+            long t0 = SystemClock.elapsedRealtime();
+            String kind = (pl ? "PL " : "SEG ") + tail(pinned != null ? pinned : orig);
             try {
                 long n;
                 if (pinned != null) {
                     try { n = up.open(ds.withUri(Uri.parse(pinned))); }
-                    catch (IOException e) { PIN.remove(orig); n = up.open(ds); }
+                    catch (IOException e) { log(kind + " ERR " + code(e) + " (unpin)"); PIN.remove(orig); n = up.open(ds); }
                 } else {
                     n = up.open(ds);
                 }
@@ -105,8 +130,13 @@ public class NativePlayerActivity extends Activity {
                     Uri fin = up.getUri();
                     if (fin != null && !fin.toString().equals(orig)) PIN.put(orig, fin.toString());
                 }
+                log(kind + " ok " + (SystemClock.elapsedRealtime() - t0) + "ms");
                 return n;
-            } catch (IOException | RuntimeException e) { release(); throw e; }
+            } catch (IOException | RuntimeException e) { log(kind + " ERR " + code(e)); release(); throw e; }
+        }
+        private static String code(Exception e) {
+            if (e instanceof HttpDataSource.InvalidResponseCodeException) return String.valueOf(((HttpDataSource.InvalidResponseCodeException) e).responseCode);
+            return e.getClass().getSimpleName();
         }
         private static boolean isPlaylist(String u) {
             int q = u.indexOf('?');
@@ -147,7 +177,8 @@ public class NativePlayerActivity extends Activity {
     private EditText search;
     private TextView panelHead;
     private FrameLayout topBar, botBar;
-    private TextView titleTv, infoTv, playBtn, muteBtn;
+    private TextView titleTv, infoTv, playBtn, muteBtn, dbgTv;
+    private boolean dbgOn = false;
     private DefaultHttpDataSource.Factory httpf;
     private DataSource.Factory serial;
     private FrameLayout stageFrame;
@@ -309,6 +340,9 @@ public class NativePlayerActivity extends Activity {
         muteBtn = btn("🔊", new View.OnClickListener() { @Override public void onClick(View v) { muted = !muted; applyAudio(); } });
         addTo(topBar, muteBtn, dp(44), dp(44), Gravity.LEFT | Gravity.TOP, dp(168), 0);
 
+        TextView dbg = btn("🐞", new View.OnClickListener() { @Override public void onClick(View v) { dbgOn = !dbgOn; dbgTv.setVisibility(dbgOn ? View.VISIBLE : View.GONE); dbgTv.setText(dump()); } });
+        addTo(topBar, dbg, dp(44), dp(44), Gravity.LEFT | Gravity.TOP, dp(224), 0);
+
         titleTv = new TextView(this);
         titleTv.setTextColor(Color.WHITE);
         titleTv.setTextSize(17);
@@ -316,7 +350,7 @@ public class NativePlayerActivity extends Activity {
         titleTv.setSingleLine(true);
         titleTv.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(-2, dp(44), Gravity.RIGHT | Gravity.TOP);
-        tl.setMargins(dp(230), 0, dp(4), 0);
+        tl.setMargins(dp(290), 0, dp(4), 0);
         topBar.addView(titleTv, tl);
 
         // bottom bar
@@ -359,6 +393,17 @@ public class NativePlayerActivity extends Activity {
         infoTv.setVisibility(View.GONE);
         FrameLayout.LayoutParams il = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
         stageFrame.addView(infoTv, il);
+
+        dbgTv = new TextView(this);
+        dbgTv.setTextColor(0xFF9CFF9C);
+        dbgTv.setTextSize(10);
+        dbgTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        dbgTv.setBackgroundColor(0xBB000000);
+        dbgTv.setPadding(dp(6), dp(4), dp(6), dp(4));
+        dbgTv.setVisibility(View.GONE);
+        FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(-2, -2, Gravity.LEFT | Gravity.TOP);
+        dl.setMargins(dp(8), dp(64), 0, 0);
+        stageFrame.addView(dbgTv, dl);
     }
 
     private void relayout() {
@@ -512,6 +557,7 @@ public class NativePlayerActivity extends Activity {
                 long left = dur == C.TIME_UNSET ? Long.MAX_VALUE : dur - s.p.getCurrentPosition();
                 if (st == Player.STATE_BUFFERING && s.bufSince > 0 && now - s.bufSince > 12000 && now - s.lastRefresh > 8000) refresh(s);
             }
+            if (dbgOn && dbgTv != null) dbgTv.setText(dump());
             hd.postDelayed(this, 1000);
         }
     };
