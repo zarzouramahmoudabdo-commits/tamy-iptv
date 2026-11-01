@@ -161,11 +161,6 @@ public class NativePlayerActivity extends Activity {
             if (e instanceof HttpDataSource.InvalidResponseCodeException) return String.valueOf(((HttpDataSource.InvalidResponseCodeException) e).responseCode);
             return e.getClass().getSimpleName();
         }
-        private static boolean isPlaylist(String u) {
-            int q = u.indexOf('?');
-            String path = q > 0 ? u.substring(0, q) : u;
-            return path.endsWith(".m3u8");
-        }
         @Override public int read(byte[] b, int o, int l) throws IOException { return up.read(b, o, l); }
         @Override public Uri getUri() { return up.getUri(); }
         @Override public Map<String, List<String>> getResponseHeaders() { return up.getResponseHeaders(); }

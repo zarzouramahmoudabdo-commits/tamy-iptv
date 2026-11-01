@@ -45,6 +45,7 @@ jobs:
       - name: Build with advanced native player
         id: pro
         continue-on-error: true
+        shell: bash
         run: |
           npx cap add android
           python3 scripts/patch_android.py
@@ -54,7 +55,14 @@ jobs:
           npx cap sync android
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee "$GITHUB_WORKSPACE/pro.log"
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Save pro error
+        if: steps.pro.outcome == 'failure'
+        run: |
+          E=$(grep -m3 "error:" pro.log | sed 's#.*/##' | tr '\n' ' ' | cut -c1-300)
+          echo "PROERR=$E" >> "$GITHUB_ENV"
 
       - name: Mark pro mode
         if: steps.pro.outcome == 'success'
@@ -106,5 +114,5 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: TAMY IPTV build ${{ github.run_number }} (${{ env.MODE }} player)
-          body: "build ${{ github.run_number }} native ${{ env.NH }} — Player mode: ${{ env.MODE }}"
+          body: "build ${{ github.run_number }} native ${{ env.NH }} — Player mode: ${{ env.MODE }} ${{ env.PROERR }}"
           files: TAMY-IPTV.apk
