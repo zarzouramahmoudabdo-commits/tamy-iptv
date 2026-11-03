@@ -61,7 +61,7 @@ let uid = LS.get('tamy:uid', null);
 let U = null;
 const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', ua: 'vlc', fmt: 'm3u8', active: 'free', showFree: false, autoUpdate: true } });
 function loadU() { U = LS.get('tamy:u:' + uid, null) || DEF(); U.settings = Object.assign(DEF().settings, U.settings || {}); U.pos = U.pos || {}; U.recent = U.recent || {}; U.recentL = U.recentL || {}; U.sources = U.sources || []; if (U.settings.active !== 'free' && !U.sources.some(x => x.id === U.settings.active)) U.settings.active = 'free'; if (U.settings.active === 'free' && U.settings.showFree === false && U.sources.length) U.settings.active = U.sources[0].id; applyTheme(); }
-function saveU() { if (uid) LS.set('tamy:u:' + uid, U); }
+function saveU() { if (uid) LS.set('tamy:u:' + uid, U); if (typeof srvAuto === 'function') srvAuto(); }
 function applyTheme() {
   document.documentElement.dataset.theme = (U && U.settings.theme) || 'morph';
   document.documentElement.lang = lang;
@@ -259,7 +259,7 @@ function vHome(v) {
   const cnt = k => { const a = xc.get(src.id + '|' + k); return a ? a.length + ' ' + L('عنصر', 'items') : (src.type === 'free' ? L('قنوات عالمية مجانية', 'Free world channels') : sn); };
   const info = src.info, exp = info && info.exp ? new Date(info.exp * 1000).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-GB') : '';
   const st = (n, label, act, to) => `<button class="stile" data-act="${act}" data-to="${to}">${ic(n, 30)}<span>${label}</span></button>`;
-  v.innerHTML = `<div class="hwrap">${srcBar()}
+  v.innerHTML = `<div class="hwrap">${srcBar()}<div id="xtra" class="xtra hidden"></div>
     <div class="hgrid">
       <button class="htile live" data-act="go" data-to="live" style="--d:0ms"><span class="big">${ic('tv', 90)}</span><b>${L('تلفزيون مباشر', 'Live TV')}</b><small>${cnt('live')}</small></button>
       <button class="htile mov" data-act="go" data-to="movies" style="--d:80ms"><span class="big">${ic('film', 64)}</span><b>${L('أفلام', 'Movies')}</b><small>${src.type === 'free' ? L('من اشتراكك', 'From your subscription') : cnt('movie')}</small></button>
@@ -267,6 +267,7 @@ function vHome(v) {
       <div class="smalls">${st('heart', L('المفضلة', 'Favorites'), 'go', 'favs')}${st('clock', L('آخر ما شاهدته', 'Recently watched'), 'recents', '')}${st('radio', L('راديو', 'Radio'), 'go', 'radio')}${st('moon', L('مواقيت الصلاة', 'Prayer times'), 'go', 'prayer')}</div>
     </div>
     <div class="hfoot"><span>${L('الاشتراك الحالي: ', 'Current: ')}<b>${sn}</b></span>${exp ? `<span>${L('ينتهي: ', 'Expires: ')}<b>${exp}</b></span>` : ''}<span class="mut">${L('TAMY IPTV مشغّل فقط — المحتوى من اشتراكك والمجاني من قوائم عامة', 'Player only — content from your subscription; free from public lists')}</span></div></div>`;
+  setTimeout(loadXtra, 0);
 }
 function recentsModal() {
   const r = U.recent, row = (k, ic2, label) => r[k] ? `<div class="ep"><span>${ic2} ${label}: <b>${esc(r[k].name)}</b></span><button class="btn sm pri" data-act="resume" data-k="${k}">▶</button></div>` : '';
@@ -805,9 +806,11 @@ function vSettings(v) {
     <div class="row"><div><b>${L('الإصدار', 'Version')}</b><small>${esc(APPV)}</small></div><button class="btn sm" data-act="chkupd">${L('تحقق الآن', 'Check now')}</button></div>
     <div class="row"><div><b>${L('تحديث تلقائي', 'Auto update')}</b><small>${L('يحمّل آخر نسخة من الواجهة عند فتح التطبيق', 'Loads the latest UI when the app opens')}</small></div><button class="sw ${s.autoUpdate !== false ? 'on' : ''}" data-act="autoupd" aria-label="auto"></button></div>
     ${APK_NEW ? `<div class="row"><div><b>🔴 ${L('نسخة APK جديدة متاحة', 'New APK available')}</b><small>${L('تحديث للمكوّنات الأصلية (المشغّل/الأيقونة)', 'Native components update')}</small></div><button class="btn sm" data-act="apkdl">${L('تنزيل', 'Download')}</button></div>` : ''}</div>
+  ${srvSection()}
   <div class="set"><h3>💾 ${L('نسخة احتياطية', 'Backup')}</h3><div class="acts" style="justify-content:flex-start"><button class="btn" data-act="export">${L('تصدير', 'Export')}</button><button class="btn" data-act="import">${L('استيراد', 'Import')}</button><button class="btn dng" data-act="wipe">${L('مسح بيانات الحساب', 'Clear account data')}</button></div>
     <input type="file" id="impf" accept=".json" class="hidden"></div>
   <div class="set"><h3>ℹ️ TAMY IPTV 1.0</h3><small style="color:var(--mut);line-height:1.8">${L('TAMY IPTV مشغّل فقط: يعرض المحتوى الذي تضيفه أنت من اشتراكك أو قوائمك، بالإضافة إلى قنوات مجانية عامة من قوائم iptv-org. لا يوفّر التطبيق قنوات مدفوعة ولا يتحمّل مسؤولية المحتوى.', 'TAMY IPTV is a player only: it shows content you add from your own subscription or playlists, plus free public channels from iptv-org lists. It does not supply paid channels.')}</small></div>`;
+  srvBind();
   const au = $('#adhanUrl'); au && au.addEventListener('change', () => { U.settings.adhanUrl = au.value.trim(); saveU(); toast(L('تم الحفظ', 'Saved')); });
 }
 let sType = 'xtream', editId = null;
@@ -1114,6 +1117,119 @@ function boot() {
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && (!isNative() || location.protocol === 'https:')) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
   startUpdates();
 }
+/* ───────────── خادم TAMY: حساب + مزامنة مشفّرة + مباريات + إعلانات ───────────── */
+const SV0 = { url: '', user: '', token: '', ek: '', rev: 0, auto: true };
+const SRV = { cfg: Object.assign({}, SV0, LS.get('tamy:srv', {})), busy: false, t: null };
+const srvSave = () => LS.set('tamy:srv', SRV.cfg);
+const srvBase = () => { const u = (SRV.cfg.url || '').trim().replace(/\/+$/, ''); return /^(https:\/\/|http:\/\/localhost)[^\s/]+/i.test(u) ? u : ''; };
+const b64e = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64d = s2 => Uint8Array.from(atob(s2.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function srvReq(path, o = {}) {
+  const base = srvBase(); if (!base) throw new Error(L('أدخل رابط السيرفر', 'Enter server URL'));
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const h = { 'Content-Type': 'application/json' }; if (SRV.cfg.token && !o.noAuth) h.Authorization = 'Bearer ' + SRV.cfg.token;
+    const r = await fetch(base + path, { method: o.method || 'GET', headers: h, body: o.body ? JSON.stringify(o.body) : undefined, signal: ctl.signal });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(j.error || 'HTTP ' + r.status); e.status = r.status; e.data = j; throw e; }
+    return j;
+  } finally { clearTimeout(to); }
+}
+// كلمة المرور تبقى على الجهاز: نشتق منها مفتاح دخول (يُرسل) ومفتاح تشفير (يبقى هنا)
+async function srvDerive(user, pass) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode('tamy-iptv:' + user), iterations: 150000 }, km, 512));
+  return { authKey: b64e(bits.slice(0, 32)), ek: b64e(bits.slice(32)) };
+}
+const srvKey = () => crypto.subtle.importKey('raw', b64d(SRV.cfg.ek), 'AES-GCM', false, ['encrypt', 'decrypt']);
+async function srvEnc(obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12)), ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await srvKey(), new TextEncoder().encode(JSON.stringify(obj))));
+  const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return b64e(out);
+}
+async function srvDec(blob) {
+  const u8 = b64d(blob);
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u8.slice(0, 12) }, await srvKey(), u8.slice(12))));
+}
+const srvSnap = () => ({ v: 1, sources: U.sources.filter(x => x.type !== 'file'), favs: U.favs, recent: U.recent, pos: U.pos, settings: Object.assign({}, U.settings) });
+async function srvAuth(mode, user, pass, invite) {
+  user = (user || '').trim().toLowerCase();
+  if (!/^[a-z0-9_.-]{3,32}$/.test(user)) throw new Error(L('اسم المستخدم: 3–32 حرف إنجليزي/أرقام/._-', 'Username: 3–32 chars a-z 0-9 . _ -'));
+  if ((pass || '').length < 6) throw new Error(L('كلمة المرور 6 أحرف على الأقل', 'Password: at least 6 characters'));
+  const k = await srvDerive(user, pass);
+  const j = await srvReq('/api/auth/' + (mode === 'up' ? 'register' : 'login'), { method: 'POST', noAuth: true, body: { username: user, authKey: k.authKey, invite } });
+  SRV.cfg.user = j.username; SRV.cfg.token = j.token; SRV.cfg.ek = k.ek; SRV.cfg.rev = 0; srvSave();
+}
+async function srvPush(quiet) {
+  if (!SRV.cfg.token || SRV.busy) return; SRV.busy = true;
+  try {
+    const j = await srvReq('/api/sync', { method: 'PUT', body: { blob: await srvEnc(srvSnap()), rev: SRV.cfg.rev } });
+    SRV.cfg.rev = j.rev; srvSave(); if (!quiet) toast(L('☁ تم الرفع', '☁ Uploaded'));
+  } catch (e) {
+    if (e.status === 409) { SRV.cfg.rev = e.data.rev; srvSave(); toast(L('فيه نسخة أحدث على السيرفر — اضغط «سحب» أولًا', 'Newer copy on server — pull first')); }
+    else if (e.status === 401) { SRV.cfg.token = ''; srvSave(); toast(L('انتهت الجلسة — سجّل الدخول من جديد', 'Session expired — sign in again')); }
+    else if (!quiet) toast(L('تعذّر الرفع: ', 'Upload failed: ') + msg(e));
+  } finally { SRV.busy = false; }
+}
+async function srvPull() {
+  if (!SRV.cfg.token) return toast(L('سجّل الدخول أولًا', 'Sign in first'));
+  try {
+    const j = await srvReq('/api/sync'); if (!j.blob) { SRV.cfg.rev = j.rev || 0; srvSave(); return toast(L('لا توجد بيانات على السيرفر بعد', 'Nothing on the server yet')); }
+    const d = await srvDec(j.blob);
+    U.sources = d.sources || []; U.favs = d.favs || []; U.recent = d.recent || {}; U.pos = d.pos || {}; U.settings = Object.assign(DEF().settings, d.settings || {});
+    if (!U.sources.find(x => x.id === U.settings.active) && U.settings.active !== 'free') U.settings.active = U.sources[0] ? U.sources[0].id : 'free';
+    SRV.cfg.rev = j.rev; srvSave(); LS.set('tamy:u:' + uid, U); applyTheme(); toast(L('☁ تم السحب ✓', '☁ Pulled ✓')); render();
+  } catch (e) { toast(e.name === 'OperationError' ? L('تعذّر فك التشفير — كلمة المرور مختلفة عن اللي رفعت بيها', 'Cannot decrypt — password differs from the uploader') : L('تعذّر السحب: ', 'Pull failed: ') + msg(e)); }
+}
+function srvAuto() { if (!SRV.cfg.token || SRV.cfg.auto === false) return; clearTimeout(SRV.t); SRV.t = setTimeout(() => srvPush(true), 6000); }
+
+function srvSection() {
+  const c = SRV.cfg, on = !!c.token;
+  const acct = on ? `<div class="row"><div><b>☁ ${esc(c.user)}</b><small>${L('البيانات مشفّرة من جهازك قبل الرفع', 'Data is encrypted on your device before upload')}</small></div><button class="btn sm" data-act="srvout">${L('خروج', 'Sign out')}</button></div>
+    <div class="row"><div><b>${L('مزامنة تلقائية', 'Auto sync')}</b></div><button class="sw ${c.auto !== false ? 'on' : ''}" data-act="srvauto"></button></div>
+    <div class="acts" style="justify-content:flex-start"><button class="btn" data-act="srvpush">⬆ ${L('رفع الآن', 'Upload')}</button><button class="btn" data-act="srvpull">⬇ ${L('سحب', 'Pull')}</button><button class="btn dng" data-act="srvdel">${L('حذف الحساب', 'Delete account')}</button></div>`
+    : `<div class="row" style="flex-wrap:wrap"><div style="flex:1;min-width:200px"><input class="in" style="width:100%;margin-bottom:6px" id="sv-u" placeholder="${L('اسم المستخدم', 'Username')}" autocapitalize="none" autocomplete="username"><input class="in" style="width:100%;margin-bottom:6px" id="sv-p" type="password" placeholder="${L('كلمة المرور (6+)', 'Password (6+)')}" autocomplete="current-password"><input class="in" style="width:100%" id="sv-i" placeholder="${L('كود الدعوة (إن وُجد)', 'Invite code (if any)')}"></div></div>
+    <div class="acts" style="justify-content:flex-start"><button class="btn pri" data-act="srvin">${L('دخول', 'Sign in')}</button><button class="btn" data-act="srvup">${L('حساب جديد', 'Create account')}</button></div>`;
+  return `<div class="set"><h3>☁ ${L('حسابي والمزامنة', 'Account & sync')}</h3>
+    <div class="row"><div style="flex:1"><b>${L('رابط السيرفر', 'Server URL')}</b><input class="in" style="width:100%;margin-top:6px" id="sv-url" placeholder="https://tamy.xxx.workers.dev" value="${esc(c.url)}" autocapitalize="none"><small>${L('فعّل المباريات والإعلانات والمزامنة بين أجهزتك', 'Enables matches, announcements and cross-device sync')}</small></div></div>
+    ${srvBase() ? acct : ''}</div>`;
+}
+function srvBind() {
+  const u = $('#sv-url'); u && u.addEventListener('change', () => { SRV.cfg.url = u.value.trim(); srvSave(); XT.t = 0; render(); });
+}
+
+const XT = { t: 0, m: [], a: [] };
+async function loadXtra() {
+  const box = $('#xtra'); if (!box) return;
+  if (!srvBase()) { box.remove(); return; }
+  const draw = () => {
+    const b = $('#xtra'); if (!b) return;
+    const now = Date.now(), nx = nextPrayer(), loc = lang === 'ar' ? 'ar-EG' : 'en-GB';
+    const ann = XT.a.slice(0, 2).map(a => `<div class="xc ann">📢 <b>${esc(a.title)}</b><small>${esc(a.body)}</small></div>`).join('');
+    const pr = nx ? `<div class="xc"><small>${L('الصلاة القادمة', 'Next prayer')}</small><b>🌙 ${PRAYERS.find(p => p[0] === nx.k)[lang === 'ar' ? 1 : 2]} · ${nx.d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</b></div>` : '';
+    const ms = XT.m.filter(m => Date.parse(m.ts) > now - 2 * 3600e3).slice(0, 6).map(m => `<div class="xc"><small>${esc(m.league)}</small><b>${esc(m.home)} <span class="vs">${m.score ? esc(m.score) : 'vs'}</span> ${esc(m.away)}</b><small>${new Date(m.ts).toLocaleString(loc, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</small></div>`).join('');
+    b.innerHTML = ann + pr + ms; b.classList.toggle('hidden', !b.innerHTML);
+  };
+  draw();
+  if (Date.now() - XT.t < 5 * 60e3) return; XT.t = Date.now();
+  try { const [m, a] = await Promise.all([srvReq('/api/matches', { noAuth: true }), srvReq('/api/announcements', { noAuth: true })]); XT.m = m.matches || []; XT.a = a.items || []; draw(); } catch (e) { /* السيرفر اختياري */ }
+  if (!PR.t) loadPrayer(); 
+}
+Object.assign(A, {
+  srvin: () => srvDo('in'), srvup: () => srvDo('up'),
+  srvout: () => { SRV.cfg.token = ''; SRV.cfg.ek = ''; SRV.cfg.rev = 0; srvSave(); toast(L('تم تسجيل الخروج من السيرفر', 'Signed out')); render(); },
+  srvauto: () => { SRV.cfg.auto = SRV.cfg.auto === false; srvSave(); render(); },
+  srvpush: () => srvPush(false), srvpull: () => { if (confirm(L('سحب النسخة من السيرفر سيستبدل بياناتك الحالية على هذا الجهاز. متأكد؟', 'Pulling replaces the data on this device. Continue?'))) srvPull(); },
+  srvdel: async () => { if (!confirm(L('حذف حسابك وبياناتك من السيرفر نهائيًا؟', 'Delete your account and data from the server permanently?'))) return; try { await srvReq('/api/account', { method: 'DELETE' }); SRV.cfg.token = ''; SRV.cfg.ek = ''; SRV.cfg.rev = 0; srvSave(); toast(L('تم الحذف', 'Deleted')); render(); } catch (e) { toast(msg(e)); } },
+});
+async function srvDo(mode) {
+  const u = $('#sv-u').value, p = $('#sv-p').value, i = $('#sv-i').value.trim();
+  try {
+    toast(L('جارٍ الاتصال…', 'Connecting…')); await srvAuth(mode, u, p, i);
+    if (mode === 'in') { await srvPull(); } else { await srvPush(false); }
+    render();
+  } catch (e) { toast(e.status === 429 ? L('محاولات كثيرة — جرّب بعد قليل', 'Too many attempts — try later') : e.status === 401 ? L('اسم المستخدم أو كلمة المرور غير صحيحة', 'Wrong username or password') : e.status === 409 ? L('الاسم مستخدم بالفعل', 'Username taken') : e.status === 403 ? L('كود الدعوة غير صحيح', 'Invalid invite code') : msg(e)); }
+}
+
 window.__tamy = { parseM3U, xBase };
 boot();
 })();
