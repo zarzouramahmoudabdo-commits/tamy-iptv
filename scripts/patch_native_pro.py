@@ -79,6 +79,9 @@ import java.util.concurrent.Semaphore;
 public class NativePlayerActivity extends Activity {
     public static String[] URLS = new String[0];
     public static String[] TITLES = new String[0];
+    public static String[] GROUPS = new String[0];
+    private String curGroup = "";
+    private TextView catBtn;
 
     private static final int ACCENT = Color.parseColor("#6C5CE7");
     private static final int MAX_SLOTS = 4;
@@ -124,6 +127,13 @@ public class NativePlayerActivity extends Activity {
         @Override public void addTransferListener(TransferListener l) { up.addTransferListener(l); }
         @Override
         public long open(DataSpec ds) throws IOException {
+            // continuous live TS (one long connection): never serialize it, it would hold the lock for hours
+            String u0 = ds.uri.toString(); int q0 = u0.indexOf('?'); String p0 = q0 > 0 ? u0.substring(0, q0) : u0;
+            if (p0.endsWith(".ts") && p0.contains("/live/")) {
+                long t1 = SystemClock.elapsedRealtime();
+                try { long n0 = openRetry(ds, "TS " + tail(u0)); log("TS " + tail(u0) + " ok " + (SystemClock.elapsedRealtime() - t1) + "ms"); return n0; }
+                catch (IOException | RuntimeException e) { log("TS " + tail(u0) + " ERR " + code(e)); throw e; }
+            }
             try { LOCK.acquire(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new InterruptedIOException(); }
             held = true;
             String cur = ds.uri.toString();
@@ -345,6 +355,16 @@ public class NativePlayerActivity extends Activity {
             @Override public void afterTextChanged(Editable s) { refreshList(); }
         });
         panel.addView(search, new LinearLayout.LayoutParams(-1, -2));
+        catBtn = new TextView(this);
+        catBtn.setText("📂 كل التصنيفات ▾");
+        catBtn.setTextColor(Color.WHITE);
+        catBtn.setTextSize(13);
+        catBtn.setPadding(dp(10), dp(8), dp(10), dp(8));
+        catBtn.setBackgroundColor(Color.parseColor("#336C5CE7"));
+        catBtn.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showCategories(); } });
+        LinearLayout.LayoutParams cbl = new LinearLayout.LayoutParams(-1, -2);
+        cbl.setMargins(0, dp(6), 0, dp(6));
+        panel.addView(catBtn, cbl);
 
         listView = new ListView(this);
         listView.setDividerHeight(0);
@@ -444,7 +464,7 @@ public class NativePlayerActivity extends Activity {
         right.setOrientation(LinearLayout.HORIZONTAL);
         speedBtn = btn("1x", new View.OnClickListener() { @Override public void onClick(View v) { cycleSpeed(); } });
         speedBtn.setTextSize(14);
-        TextView trk = btn("⚙", new View.OnClickListener() { @Override public void onClick(View v) { showTracks(); } });
+        TextView trk = btn("⚙", new View.OnClickListener() { @Override public void onClick(View v) { showSettings(); } });
         TextView slp = btn("⏲", new View.OnClickListener() { @Override public void onClick(View v) { sleepDialog(); } });
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(dp(48), dp(48));
         rl.setMargins(dp(8), 0, 0, 0);
@@ -542,7 +562,7 @@ public class NativePlayerActivity extends Activity {
     private MediaItem itemFor(int i) {
         String t = i < TITLES.length ? TITLES[i] : "";
         return new MediaItem.Builder().setUri(URLS[i])
-                .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(12000).setMinOffsetMs(3000).setMaxOffsetMs(40000).build())
+                .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(8000).setMinOffsetMs(3000).setMaxOffsetMs(40000).build())
                 .setMediaMetadata(new MediaMetadata.Builder().setTitle(t).build()).build();
     }
 
@@ -581,6 +601,10 @@ public class NativePlayerActivity extends Activity {
             @Override
             public void onPlaybackStateChanged(int st) {
                 long now = SystemClock.elapsedRealtime();
+                if (st == Player.STATE_ENDED && live) {
+                    hd.postDelayed(new Runnable() { @Override public void run() { if (slots.contains(s)) refresh(s); } }, 300);
+                    return;
+                }
                 if (st == Player.STATE_ENDED && !live) {
                     if (URLS.length > 1 && slots.size() == 1 && s.idx < URLS.length - 1) zap(1); else finish();
                     return;
@@ -806,6 +830,7 @@ public class NativePlayerActivity extends Activity {
         for (int i = 0; i < URLS.length; i++) {
             String t = i < TITLES.length ? TITLES[i] : "";
             if (!q.isEmpty() && !t.toLowerCase().contains(q)) continue;
+            if (!curGroup.isEmpty() && !(i < GROUPS.length && curGroup.equals(GROUPS[i]))) continue;
             shown.add(i);
             rows.add((i == cur ? "▶ " : "") + (i + 1) + ".  " + t);
         }
@@ -891,6 +916,146 @@ public class NativePlayerActivity extends Activity {
         slots.get(sel).p.setPlaybackParameters(new PlaybackParameters(sp));
         speedBtn.setText((sp == (int) sp ? String.valueOf((int) sp) : String.valueOf(sp)) + "x");
         showControls();
+    }
+
+    private void showCategories() {
+        final List<String> g = new ArrayList<>();
+        for (String x : GROUPS) if (x != null && !x.isEmpty() && !g.contains(x)) g.add(x);
+        if (g.isEmpty()) { showInfo("لا توجد تصنيفات"); hd.postDelayed(new Runnable() { @Override public void run() { hideInfo(); } }, 1500); return; }
+        final CharSequence[] names = new CharSequence[g.size() + 1];
+        names[0] = "📂 كل التصنيفات" + (curGroup.isEmpty() ? "  ✓" : "");
+        for (int i = 0; i < g.size(); i++) names[i + 1] = g.get(i) + (g.get(i).equals(curGroup) ? "  ✓" : "");
+        new AlertDialog.Builder(this).setTitle("التصنيفات")
+                .setItems(names, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) {
+                        curGroup = which == 0 ? "" : g.get(which - 1);
+                        catBtn.setText("📂 " + (curGroup.isEmpty() ? "كل التصنيفات" : curGroup) + " ▾");
+                        refreshList();
+                    }
+                }).show();
+    }
+
+    private String resName() {
+        if (slots.isEmpty()) return "";
+        Format f = slots.get(sel).p.getVideoFormat();
+        return f == null || f.height <= 0 ? "" : f.height + "p";
+    }
+
+    // one place for everything the viewer may want to change
+    private void showSettings() {
+        if (slots.isEmpty()) return;
+        final ExoPlayer p = slots.get(sel).p;
+        final List<String> names = new ArrayList<>();
+        final List<Runnable> acts = new ArrayList<>();
+        names.add("🎞 جودة الفيديو" + (resName().isEmpty() ? "" : "  ·  " + resName()));
+        acts.add(new Runnable() { @Override public void run() { showQuality(); } });
+        names.add("🔊 المسار الصوتي");
+        acts.add(new Runnable() { @Override public void run() { showTrackType(C.TRACK_TYPE_AUDIO, "المسار الصوتي"); } });
+        names.add("💬 الترجمة");
+        acts.add(new Runnable() { @Override public void run() { showTrackType(C.TRACK_TYPE_TEXT, "الترجمة"); } });
+        names.add("⛶ نسبة العرض  ·  " + (resizeMode == 0 ? "ملائم" : resizeMode == 1 ? "تكبير" : "تمديد"));
+        acts.add(new Runnable() { @Override public void run() { cycleResize(); hd.postDelayed(new Runnable() { @Override public void run() { hideInfo(); } }, 1500); } });
+        if (!live) {
+            names.add("⏩ سرعة التشغيل  ·  " + SPEEDS[speedIdx] + "x");
+            acts.add(new Runnable() { @Override public void run() { speedDialog(); } });
+        }
+        names.add("ℹ معلومات البث");
+        acts.add(new Runnable() { @Override public void run() { showStreamInfo(); } });
+        names.add("⏲ مؤقت النوم");
+        acts.add(new Runnable() { @Override public void run() { sleepDialog(); } });
+        new AlertDialog.Builder(this).setTitle("إعدادات المشغّل")
+                .setItems(names.toArray(new CharSequence[0]), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) { acts.get(which).run(); }
+                }).show();
+    }
+
+    private void speedDialog() {
+        CharSequence[] l = new CharSequence[SPEEDS.length];
+        for (int i = 0; i < l.length; i++) l[i] = SPEEDS[i] + "x" + (i == speedIdx ? "  ✓" : "");
+        new AlertDialog.Builder(this).setTitle("سرعة التشغيل")
+                .setItems(l, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) {
+                        speedIdx = which;
+                        float sp = SPEEDS[which];
+                        if (!slots.isEmpty()) slots.get(sel).p.setPlaybackParameters(new PlaybackParameters(sp));
+                        speedBtn.setText((sp == (int) sp ? String.valueOf((int) sp) : String.valueOf(sp)) + "x");
+                    }
+                }).show();
+    }
+
+    private void showQuality() {
+        final ExoPlayer p = slots.get(sel).p;
+        final List<String> names = new ArrayList<>();
+        final List<Runnable> acts = new ArrayList<>();
+        names.add("تلقائي");
+        acts.add(new Runnable() { @Override public void run() {
+            p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()); } });
+        for (final Tracks.Group g : p.getCurrentTracks().getGroups()) {
+            if (g.getType() != C.TRACK_TYPE_VIDEO) continue;
+            for (int i = 0; i < g.length; i++) {
+                final int ti = i;
+                Format f = g.getTrackFormat(i);
+                if (f.height <= 0) continue;
+                names.add(f.height + "p" + (f.bitrate > 0 ? "  ·  " + (f.bitrate / 1000) + " kbps" : "") + (g.isTrackSelected(i) ? "  ✓" : ""));
+                acts.add(new Runnable() { @Override public void run() {
+                    p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
+                            .setOverrideForType(new TrackSelectionOverride(g.getMediaTrackGroup(), ti)).build()); } });
+            }
+        }
+        String title = names.size() <= 2 ? "جودة الفيديو (البث ده بجودة واحدة فقط)" : "جودة الفيديو";
+        new AlertDialog.Builder(this).setTitle(title)
+                .setItems(names.toArray(new CharSequence[0]), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) { acts.get(which).run(); }
+                }).show();
+    }
+
+    private void showTrackType(final int type, String title) {
+        final ExoPlayer p = slots.get(sel).p;
+        final List<String> names = new ArrayList<>();
+        final List<Runnable> acts = new ArrayList<>();
+        for (final Tracks.Group g : p.getCurrentTracks().getGroups()) {
+            if (g.getType() != type) continue;
+            for (int i = 0; i < g.length; i++) {
+                final int ti = i;
+                Format f = g.getTrackFormat(i);
+                String nm = f.label != null ? f.label : (f.language != null ? f.language : "#" + (i + 1));
+                names.add(nm + (g.isTrackSelected(i) ? "  ✓" : ""));
+                acts.add(new Runnable() { @Override public void run() {
+                    p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
+                            .setTrackTypeDisabled(type, false)
+                            .setOverrideForType(new TrackSelectionOverride(g.getMediaTrackGroup(), ti)).build()); } });
+            }
+        }
+        if (type == C.TRACK_TYPE_TEXT) {
+            names.add("إيقاف الترجمة");
+            acts.add(new Runnable() { @Override public void run() {
+                p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()); } });
+        }
+        if (names.isEmpty()) { showInfo("لا توجد مسارات متاحة"); hd.postDelayed(new Runnable() { @Override public void run() { hideInfo(); } }, 1500); return; }
+        new AlertDialog.Builder(this).setTitle(title)
+                .setItems(names.toArray(new CharSequence[0]), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) { acts.get(which).run(); }
+                }).show();
+    }
+
+    private void showStreamInfo() {
+        ExoPlayer p = slots.get(sel).p;
+        Format v = p.getVideoFormat(), a = p.getAudioFormat();
+        StringBuilder sb = new StringBuilder();
+        if (v != null) {
+            sb.append("الفيديو: ").append(v.width).append("×").append(v.height);
+            if (v.frameRate > 0) sb.append("  ").append(Math.round(v.frameRate)).append("fps");
+            if (v.sampleMimeType != null) sb.append("\n").append(v.sampleMimeType.replace("video/", "")).append(v.codecs != null ? "  (" + v.codecs + ")" : "");
+            if (v.bitrate > 0) sb.append("\nمعدل البيانات: ").append(v.bitrate / 1000).append(" kbps");
+        } else sb.append("الفيديو: —");
+        if (a != null) {
+            sb.append("\n\nالصوت: ").append(a.sampleMimeType != null ? a.sampleMimeType.replace("audio/", "") : "—");
+            if (a.channelCount > 0) sb.append("  ").append(a.channelCount).append("ch");
+            if (a.sampleRate > 0) sb.append("  ").append(a.sampleRate / 1000).append("kHz");
+        }
+        sb.append("\n\nالمخزّن مسبقًا: ").append(p.getTotalBufferedDuration() / 1000).append(" ث");
+        try { sb.append("\nالسيرفر: ").append(Uri.parse(URLS[slots.get(sel).idx]).getHost()); } catch (Exception ignored) {}
+        new AlertDialog.Builder(this).setTitle("معلومات البث").setMessage(sb.toString()).setPositiveButton("حسناً", null).show();
     }
 
     private void showTracks() {

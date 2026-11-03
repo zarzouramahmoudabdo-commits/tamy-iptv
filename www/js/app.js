@@ -59,7 +59,7 @@ const QURAN_FALLBACK = [{ id: 'radio|https://stream.radiojar.com/8s5u5tpdtwzuv',
 let users = LS.get('tamy:users', []);
 let uid = LS.get('tamy:uid', null);
 let U = null;
-const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', ua: 'vlc', active: 'free', showFree: false, autoUpdate: true } });
+const DEF = () => ({ sources: [], favs: [], recent: {}, pos: {}, settings: { theme: 'morph', city: 'Cairo', country: 'Egypt', method: 5, lat: null, lng: null, adhan: true, adhanUrl: '', engine: 'auto', ua: 'vlc', fmt: 'm3u8', active: 'free', showFree: false, autoUpdate: true } });
 function loadU() { U = LS.get('tamy:u:' + uid, null) || DEF(); U.settings = Object.assign(DEF().settings, U.settings || {}); U.pos = U.pos || {}; U.recent = U.recent || {}; U.recentL = U.recentL || {}; U.sources = U.sources || []; if (U.settings.active !== 'free' && !U.sources.some(x => x.id === U.settings.active)) U.settings.active = 'free'; if (U.settings.active === 'free' && U.settings.showFree === false && U.sources.length) U.settings.active = U.sources[0].id; applyTheme(); }
 function saveU() { if (uid) LS.set('tamy:u:' + uid, U); }
 function applyTheme() {
@@ -480,8 +480,10 @@ async function openSeries(item) {
     const eps = Array.isArray(j.episodes) ? Object.fromEntries(j.episodes.map((a, i) => [i + 1, a])) : (j.episodes || {});
     const seasons = Object.keys(eps).sort((a, b) => a - b); const inf = j.info || {};
     if (!seasons.length) throw new Error(L('لا توجد حلقات', 'No episodes'));
+    const mk = sn => (eps[sn] || []).map(e => ({ id: 'series|' + s.id + '|ep' + e.id, name: `${item.name} — ${L('م', 'S')}${sn} ${L('ح', 'E')}${e.episode_num}`, url: `${b}/series/${enc(s.user)}/${enc(s.pass)}/${e.id}.${e.container_extension || 'mp4'}`, kind: 'series', logo: item.logo, group: item.group, title: e.title, srcId: s.id }));
+    window._allEps = seasons.flatMap(mk);   // كل المواسم بالترتيب → الحلقة التالية تشتغل تلقائيًا حتى بعد آخر حلقة في الموسم
     const draw = sn => {
-      const list = (eps[sn] || []).map(e => ({ id: 'series|' + s.id + '|ep' + e.id, name: `${item.name} — ${L('م', 'S')}${sn} ${L('ح', 'E')}${e.episode_num}`, url: `${b}/series/${enc(s.user)}/${enc(s.pass)}/${e.id}.${e.container_extension || 'mp4'}`, kind: 'series', logo: item.logo, group: item.group, title: e.title, srcId: s.id }));
+      const list = mk(sn);
       window._eps = list;
       $('#eps').innerHTML = list.map((e, n) => `<div class="ep"><span>${esc(e.title || e.name)}</span><button class="btn sm pri" data-act="ep" data-n="${n}">▶</button></div>`).join('');
       $$('#smod .chip').forEach(c => c.classList.toggle('on', c.dataset.sn === String(sn)));
@@ -522,7 +524,8 @@ async function openNative(item, list) {
   try {
     NP = NP || plug();
     const pos = (!live && U.pos[item.id]) ? U.pos[item.id] * 1000 : 0;
-    const r = await NP.play({ urls: win.map(x => x.url), titles: win.map(x => x.name), index: idx, live, pos, ua: curUA() });
+    const ts = U.settings.fmt === 'ts'; const fu = x => (ts && x.kind === 'live' && /\/live\/[^/]+\/[^/]+\/[^/]+\.m3u8(\?.*)?$/i.test(x.url)) ? x.url.replace(/\.m3u8(\?.*)?$/i, '.ts$1') : x.url;
+    const r = await NP.play({ urls: win.map(fu), titles: win.map(x => x.name), groups: win.map(x => x.group || ''), index: idx, live, pos, ua: curUA() });
     const last = r && typeof r.index === 'number' ? win[r.index] : null;
     if (last) { saveRecent(last); if (!live && r.pos > 0) { if (r.dur && r.pos > r.dur - 60000) delete U.pos[last.id]; else U.pos[last.id] = Math.floor(r.pos / 1000); saveU(); } }
   } catch (e) { toast(L('تعذّر المشغّل الأصلي، جارٍ استخدام المشغّل العادي', 'Native player failed, using web player')); openWeb(item, list); }
@@ -789,6 +792,8 @@ function vSettings(v) {
     <div class="row"><div><b>${L('اللغة', 'Language')}</b></div><button class="btn sm" data-act="lang">${lang === 'ar' ? 'English' : 'العربية'}</button></div>
     <div class="row"><div><b>${L('هوية المشغّل (User-Agent)', 'Player identity (User-Agent)')}</b><small>${L('لو السيرفر بيرفض (HTTP 406) جرّب هوية تانية', 'If the server rejects (HTTP 406) try another')}</small></div>
       <select class="in" data-act="ua">${[['vlc', 'VLC'], ['smarters', 'IPTV Smarters'], ['tivimate', 'TiviMate'], ['android', 'Android'], ['chrome', 'Chrome'], ['ffmpeg', 'FFmpeg']].map(a => `<option value="${a[0]}" ${s.ua === a[0] ? 'selected' : ''}>${a[1]}</option>`).join('')}</select></div>
+    <div class="row"><div><b>${L('صيغة البث المباشر', 'Live stream format')}</b><small>${L('لو بيقطع كل ثواني (HTTP 509/429) جرّب «TS مباشر» — اتصال واحد مستمر', 'If it cuts every few seconds (HTTP 509/429) try direct TS — one continuous connection')}</small></div>
+      <select class="in" data-act="fmt"><option value="m3u8" ${s.fmt !== 'ts' ? 'selected' : ''}>HLS (m3u8)</option><option value="ts" ${s.fmt === 'ts' ? 'selected' : ''}>${L('TS مباشر', 'Direct TS')}</option></select></div>
     <div class="row"><div><b>${L('المشغّل الأصلي (ExoPlayer)', 'Native player (ExoPlayer)')}</b><small>${nativeAvail() ? '✅ ' + L('متاح — مطلوب لقنوات HEVC/H.265', 'Available — needed for HEVC/H.265') : '❌ ' + L('غير متاح — قنوات HEVC لن تعمل', 'Unavailable — HEVC will not play')}</small><small style="direction:ltr;display:block;opacity:.7">${esc(capInfo())}</small></div></div>
     <div class="row"><div><b>${L('محرك التشغيل', 'Player engine')}</b><small>${L('الأصلي يدعم H.265 ومعظم السيرفرات', 'Native supports H.265 and most servers')}</small></div>
       <select class="in" data-act="engine"><option value="auto" ${s.engine === 'auto' ? 'selected' : ''}>${L('تلقائي (الأصلي ExoPlayer إن وُجد)', 'Auto (native ExoPlayer if available)')}</option><option value="web" ${s.engine === 'web' ? 'selected' : ''}>${L('مشغّل الويب فقط', 'Web player only')}</option><option value="hls" ${s.engine === 'hls' ? 'selected' : ''}>hls.js</option><option value="native" ${s.engine === 'native' ? 'selected' : ''}>${L('أصلي', 'Native')}</option></select></div>
@@ -827,8 +832,14 @@ async function saveSource() {
   if (old && old.info) s.info = old.info;
   try {
     say(L('جارٍ الاختبار…', 'Testing…'));
-    if (sType === 'xtream') {
-      s.url = $('#s-url').value.trim(); s.user = $('#s-user').value.trim(); s.pass = $('#s-pass').value.trim();
+    let conv = null;
+    if (sType === 'm3u') {   // رابط get.php?username&password = اشتراك Xtream: أسرع بكثير عبر الـAPI بدل تحميل القائمة كلها
+      const raw = $('#s-m3u').value.trim(), mm = raw.match(/^(https?:\/\/[^/?#]+)(?:\/[^?#]*)?\/get\.php\?(.*)$/i);
+      if (mm) { const q = new URLSearchParams(mm[2].replace(/#.*$/, '')); if (q.get('username') && q.get('password')) conv = { url: mm[1], user: q.get('username'), pass: q.get('password') }; }
+    }
+    if (sType === 'xtream' || conv) {
+      if (conv) { s.type = 'xtream'; s.url = conv.url; s.user = conv.user; s.pass = conv.pass; say(L('تم التعرّف عليه كاشتراك Xtream — جارٍ الاختبار…', 'Detected as Xtream — testing…')); }
+      else { s.url = $('#s-url').value.trim(); s.user = $('#s-user').value.trim(); s.pass = $('#s-pass').value.trim(); }
       if (!/^https?:\/\//i.test(s.url) || !s.user || !s.pass) return say(L('أكمل بيانات السيرفر', 'Fill in all server fields'), true);
       const j = await apiJson(`${xBase(s.url)}/player_api.php?username=${enc(s.user)}&password=${enc(s.pass)}`);
       const ui = j.user_info;
@@ -837,7 +848,7 @@ async function saveSource() {
       s.info = { status: ui.status, exp: +ui.exp_date || 0, max: +ui.max_connections || 0, act: +ui.active_cons || 0 };
     } else if (sType === 'm3u') {
       s.url = $('#s-m3u').value.trim(); if (!/^https?:\/\//i.test(s.url)) return say(L('أدخل رابطاً صحيحاً', 'Enter a valid URL'), true);
-      cache.delete(s.url); const n = (await loadM3U(s.url)).length; say(n + ' ' + L('عنصر', 'items'));
+      say(L('جارٍ تحميل القائمة… قد يستغرق حتى دقيقة للقوائم الكبيرة', 'Loading list… may take up to a minute for big lists')); cache.delete(s.url); const n = (await loadM3U(s.url)).length; say(n + ' ' + L('عنصر', 'items'));
     } else {
       const f = $('#s-file').files[0];
       if (!f && !old) return say(L('اختر ملفاً', 'Choose a file'), true);
@@ -912,7 +923,7 @@ const A = {
   apkdl: () => openUrl(APK_URL || 'https://github.com/' + REPO + '/releases/latest'),
   adhan: () => { U.settings.adhan = !U.settings.adhan; saveU(); render(); if (U.settings.adhan) chime(); },
   season: el => window._drawSeason(el.dataset.sn),
-  ep: el => { const list = window._eps, i = list[+el.dataset.n]; closeModalSilent(); openPlayer(i, list); },
+  ep: el => { const cur = window._eps[+el.dataset.n], all = window._allEps || window._eps, k = all.findIndex(x => x.id === cur.id); closeModalSilent(); openPlayer(all[k >= 0 ? k : 0], all); },
   sres: el => { const i = window._sr[+el.dataset.n]; closeModalSilent(); if (i.kind === 'radio') return playRadio(i); if (i.sid) return openSeries(i); if (i.vid) { curList = [i]; return openMovie(i); } openPlayer(i, [i]); },
   rtab: el => { RD.filter = el.dataset.t; RD.shown = 60; render(); },
   rmore: () => { RD.shown += 60; render(); },
@@ -927,6 +938,7 @@ const A = {
   export: () => { const b = new Blob([JSON.stringify({ app: 'tamy-iptv', user: U }, null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'tamy-iptv-backup.json'; a.click(); },
   import: () => $('#impf').click(),
   wipe: () => { if (confirm(L('مسح كل بيانات هذا الحساب؟', 'Clear all data for this account?'))) { U = DEF(); saveU(); applyTheme(); render(); } },
+  fmt: el => { U.settings.fmt = el.value; saveU(); toast('✓ ' + (el.value === 'ts' ? 'TS' : 'HLS')); },
   ua: el => { U.settings.ua = el.value; saveU(); toast('✓ ' + el.value); },
   engine: el => { U.settings.engine = el.value; saveU(); },
   /* auth */

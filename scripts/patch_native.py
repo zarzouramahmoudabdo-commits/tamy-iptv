@@ -43,6 +43,7 @@ import java.util.List;
 public class NativePlayerActivity extends Activity {
     public static String[] URLS = new String[0];
     public static String[] TITLES = new String[0];
+    public static String[] GROUPS = new String[0];
 
     private ExoPlayer player;
     private PlayerView pv;
@@ -268,6 +269,10 @@ public class NativePlayerPlugin extends Plugin {
             }
             NativePlayerActivity.URLS = urls;
             NativePlayerActivity.TITLES = titles;
+            JSArray g = call.getArray("groups");
+            String[] groups = new String[u.length()];
+            for (int i = 0; i < groups.length; i++) groups[i] = (g != null && i < g.length()) ? g.getString(i) : "";
+            NativePlayerActivity.GROUPS = groups;
 
             int index = call.getInt("index", 0);
             int pos = call.getInt("pos", 0);
